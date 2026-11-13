@@ -1,0 +1,26 @@
+# Multi-stage Dockerfile for CampusVenue.Api (.NET 10 LTS / ASP.NET Core 10)
+
+# Build Stage
+FROM mcr.microsoft.com/dotnet/sdk:10.0-alpine AS build
+WORKDIR /src
+
+# Copy project files and restore dependencies
+COPY ["CampusVenue.Api/CampusVenue.Api.csproj", "CampusVenue.Api/"]
+COPY ["CampusVenue.Tests/CampusVenue.Tests.csproj", "CampusVenue.Tests/"]
+RUN dotnet restore "CampusVenue.Api/CampusVenue.Api.csproj"
+
+# Copy remaining source code and publish
+COPY . .
+WORKDIR "/src/CampusVenue.Api"
+RUN dotnet publish "CampusVenue.Api.csproj" -c Release -o /app/publish /p:UseAppHost=false
+
+# Runtime Stage
+FROM mcr.microsoft.com/dotnet/aspnet:10.0-alpine AS final
+WORKDIR /app
+EXPOSE 5000
+ENV ASPNETCORE_URLS=http://+:5000
+ENV ASPNETCORE_ENVIRONMENT=Development
+
+USER $APP_UID
+COPY --from=build /app/publish .
+ENTRYPOINT ["dotnet", "CampusVenue.Api.dll"]

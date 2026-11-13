@@ -1,0 +1,51 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: campusvenue-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-campusvenue_dev}
+      POSTGRES_USER: ${POSTGRES_USER:-campusvenue_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-campusvenue_dev_secret_change_me}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - campusvenue_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-campusvenue_user} -d ${POSTGRES_DB:-campusvenue_dev}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: ../infra/docker/Dockerfile.api
+    container_name: campusvenue-api
+    restart: unless-stopped
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ASPNETCORE_URLS: http://+:5000
+      ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=${POSTGRES_DB:-campusvenue_dev};Username=${POSTGRES_USER:-campusvenue_user};Password=${POSTGRES_PASSWORD:-campusvenue_dev_secret_change_me}
+      AllowedCorsOrigins: "http://localhost:3000,http://127.0.0.1:3000"
+    ports:
+      - "5000:5000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: ../infra/docker/Dockerfile.frontend
+    container_name: campusvenue-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+
+volumes:
+  campusvenue_pgdata:
+    name: campusvenue_pgdata
