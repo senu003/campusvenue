@@ -1,4 +1,4 @@
-﻿# CampusVenue — University Venue Reservation & Event Management Platform
+# CampusVenue — University Venue Reservation & Event Management Platform
 
 > A production-oriented, modular enterprise web platform designed to streamline university venue discovery, timetable conflict detection, coordinator approval workflows, and concurrent-safe interactive seat reservation.
 
@@ -187,7 +187,7 @@ sequenceDiagram
     participant System as CampusVenue API
     participant DB as PostgreSQL
     actor Admin as Facility Admin
-    actor Participant as Student / Attendee
+    actor Attendee as Student / Attendee
 
     Note over Coordinator,Admin: 1. Venue Reservation Workflow (Phases 3 & 4)
     Coordinator->>System: Submit Reservation Request (Space, Time, Setup/Cleanup Buffer)
@@ -201,14 +201,14 @@ sequenceDiagram
     Admin->>System: Review & Approve Reservation
     System->>DB: Update Status to Approved
 
-    Note over Coordinator,Participant: 2. Event Publishing & Ticket Allocation (Phases 6 & 9)
+    Note over Coordinator,Attendee: 2. Event Publishing & Ticket Allocation (Phases 6 & 9)
     Coordinator->>System: Publish Event & Attach 2D Seating Layout
-    Participant->>System: Request 10-Minute Hold on Seat B14
+    Attendee->>System: Request 10-Minute Hold on Seat B14
     System->>DB: Acquire Row-Lock on Seat B14 (Prevent Race Condition)
-    System-->>Participant: 200 OK (Hold Token, 10:00 Countdown)
-    Participant->>System: Confirm Registration with Hold Token
+    System-->>Attendee: 200 OK (Hold Token, 10:00 Countdown)
+    Attendee->>System: Confirm Registration with Hold Token
     System->>DB: Assign Allocation & Generate Ticket QR
-    System-->>Participant: Confirmation & Ticket Pass
+    System-->>Attendee: Confirmation & Ticket Pass
 ```
 
 ---
