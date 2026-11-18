@@ -7,11 +7,11 @@ using Xunit;
 
 namespace CampusVenue.Tests;
 
-public class HealthCheckTests : IClassFixture<WebApplicationFactory<Program>>
+public class HealthCheckTests : IClassFixture<TestWebApplicationFactory>
 {
     private readonly HttpClient _client;
 
-    public HealthCheckTests(WebApplicationFactory<Program> factory)
+    public HealthCheckTests(TestWebApplicationFactory factory)
     {
         _client = factory.CreateClient();
     }

@@ -68,7 +68,9 @@ Phases 1-13 — Business Features:  [                    ] 0%   (Planned)
 | **Health Check & Status Dashboard** | :white_check_mark: **Implemented & Verified** | Phase 0 | `/health` backend endpoint verifying PostgreSQL connectivity + React status UI. |
 | **EF Core DbContext & Npgsql Setup** | :white_check_mark: **Implemented & Verified** | Phase 0 | PostgreSQL container configuration and EF Core DbContext registered without fake tables. |
 | **.NET 10 LTS & C# 14 Foundation** | :white_check_mark: **Implemented & Verified** | Phase 0 | Target framework `net10.0`, SDK `10.0.404`, and ASP.NET Core 10 runtime verified. |
-| **Identity & Authentication** | :hourglass: *Planned* | Phase 1A | ASP.NET Identity, secure HttpOnly cookies, password hashing, user registration/login. |
+| **Identity Core & Session Auth** | :white_check_mark: **Implemented & Verified** | Phase 1A.1 | ASP.NET Core Identity, same-origin HttpOnly cookies, antiforgery token refresh, rate limiting, lockout. |
+| **Self-Service Sign-Up & Email Verification** | :white_check_mark: **Implemented & Verified** | Phase 1A.2 | Self-service registration, password requirements, local in-memory mailbox (`/dev/mailbox`), and email confirmation. |
+| **Password Recovery** | :hourglass: *Planned* | Phase 1A.3 | Secure password reset requests, reset tokens, and recovery workflow. |
 | **Roles & Authorization Policies** | :hourglass: *Planned* | Phase 1B | RBAC claims (`UniversityAdmin`, `FacilityAdmin`, `Coordinator`, `Participant`). |
 | **University Organizations & Tenancy** | :hourglass: *Planned* | Phase 1C | Faculties, academic departments, student societies, coordinator assignment scoping. |
 | **Buildings & Space Inventory** | :hourglass: *Planned* | Phase 2 | Space catalog, equipment metadata, accessibility tags, photo galleries. |
@@ -290,6 +292,15 @@ API starts on `http://localhost:5000`. Test the health endpoint:
 Invoke-RestMethod http://localhost:5000/health
 ```
 
+### Step 2b: Seed a Development Test User (Phase 1A.1)
+In Development mode, provision a local test user using Identity's `UserManager` (passwords are supplied locally and never committed):
+```powershell
+$env:ASPNETCORE_ENVIRONMENT = "Development"
+dotnet run --project backend/CampusVenue.Api -- `
+  --seed-dev-user-email "coordinator@campus.internal" `
+  --seed-dev-user-password "CampusVenue2026!"
+```
+
 ### Step 3: Run Frontend Single Page App
 In a separate terminal:
 ```powershell
@@ -321,13 +332,14 @@ dotnet ef migrations script --idempotent --project backend/CampusVenue.Api -o mi
 ## 15. Testing Commands
 
 ### Backend Automated Tests
-Execute the xUnit suite:
+Execute the xUnit suite (database-backed tests require `CAMPUSVENUE_TEST_CONNECTION_STRING`):
 ```powershell
-# On Host (.NET 10 installed):
-dotnet test backend/CampusVenue.sln
+# On Host (Windows PowerShell):
+$env:CAMPUSVENUE_TEST_CONNECTION_STRING = "Host=localhost;Port=5433;Database=campusvenue_dev;Username=campusvenue_user;Password=campusvenue_dev_secret_change_me;Include Error Detail=true"
+dotnet test backend/CampusVenue.sln -c Release
 
-# Or via official .NET 10 Container:
-docker run --rm -v "${PWD}/backend:/src" -w /src mcr.microsoft.com/dotnet/sdk:10.0-alpine dotnet test CampusVenue.sln
+# Or via official .NET 10 Container with Docker Compose database:
+docker run --rm -v "${PWD}/backend:/src" -w /src -e CAMPUSVENUE_TEST_CONNECTION_STRING="Host=host.docker.internal;Port=5432;Database=campusvenue_dev;Username=campusvenue_user;Password=campusvenue_dev_secret_change_me" mcr.microsoft.com/dotnet/sdk:10.0-alpine dotnet test CampusVenue.sln -c Release
 ```
 
 ### Frontend Automated Tests & Linting
@@ -367,7 +379,7 @@ docker compose down -v
 
 CampusVenue includes a multi-job Continuous Integration pipeline implemented in [`.github/workflows/ci.yml`](.github/workflows/ci.yml):
 
-- **Backend CI Job**: Checks out code on Ubuntu, sets up .NET 10.0 SDK (`10.0.x`), restores NuGet dependencies, compiles in `Release` configuration, and executes all unit and integration tests.
+- **Backend CI Job**: Runs on Ubuntu with a managed PostgreSQL 16 service container (`services.postgres`), sets up .NET 10.0 SDK (`10.0.x`), restores NuGet dependencies, compiles in `Release` configuration, and executes all unit, integration, and security tests against the real PostgreSQL database.
 - **Frontend CI Job**: Sets up Node.js 20, runs clean install (`npm ci`), executes TypeScript linting, runs Vitest component tests, and builds the production distribution bundle.
 - **Infrastructure CI Job**: Runs `docker compose config` to guarantee Docker Compose syntax and service configurations remain valid.
 
@@ -425,6 +437,7 @@ See [docs/product/roadmap.md](docs/product/roadmap.md) for detailed deliverables
   - [Testing & Quality Assurance Strategy](docs/testing/testing-strategy.md)
   - [Docker & Container Infrastructure Guide](docs/deployment/docker-compose-guide.md)
   - [Phase 0 Completion Report](docs/progress/phase-0-completion.md)
+  - [Phase 1A.1 Completion Report (Auth Core)](docs/progress/phase-1a1-completion.md)
 - **Governance**:
   - [Antigravity Engineering Directives](AGENTS.md)
   - [Contributing Guidelines](CONTRIBUTING.md)
@@ -434,11 +447,17 @@ See [docs/product/roadmap.md](docs/product/roadmap.md) for detailed deliverables
 
 ## 21. Project Status & Known Limitations
 
-- **Current Status**: **Phase 0 Completed & Verified**.
-- **Known Limitations in Phase 0**:
-  - No business entities (spaces, reservations, events) exist in the database yet. This is by design: business logic begins in Phase 1 upon approval.
-  - Authentication endpoints are not yet registered; `/health` is public.
-  - The host operating system currently has the .NET 8 Runtime installed without the full host SDK; running .NET build/tests on this machine utilizes the official Docker SDK container (`10.0-alpine` / `10.0.404`).
+- **Current Status**: **Phase 1A.1 Completed & Verified** (Secure Sign-In & Sign-Out Authentication Core).
+- **Implemented Capabilities**:
+  - ASP.NET Core Identity authentication with same-origin HttpOnly cookies (`CampusVenue.Auth`) and finite 8-hour session lifetime.
+  - Anti-CSRF protection on state-altering requests (`GET /api/auth/antiforgery`, header `X-XSRF-TOKEN`).
+  - IP-partitioned rate limiting and 5-attempt account lockout with uniform timing-safe 401 Problem Details.
+  - Forward-only EF Core migration `20261118061958_AddIdentityCore` applied against PostgreSQL with snake_case tables.
+  - React SPA login workflow with accessible form, protected account view, session restoration, and logout.
+  - Data Protection key ring persisted in Docker named volume `campusvenue_dpkeys`.
+- **Known Limitations in Phase 1A.1**:
+  - Registration, password reset, email verification, and role assignments are scheduled for subsequent Phase 1 slices (Phases 1A.2, 1B, 1C).
+  - Business entities (spaces, reservations, events) begin in Phase 2+.
 
 ---
 

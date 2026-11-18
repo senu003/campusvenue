@@ -1,4 +1,4 @@
-﻿# CampusVenue — Comprehensive Feature-by-Feature Product Roadmap
+# CampusVenue — Comprehensive Feature-by-Feature Product Roadmap
 
 This document defines the complete multi-phase roadmap for CampusVenue, from Phase 0 (Foundation) through Phase 13 (Optional 3D Visualization).
 
@@ -9,7 +9,9 @@ This document defines the complete multi-phase roadmap for CampusVenue, from Pha
 | Phase | Milestone Title | Status | Primary Focus |
 | :---: | --------------- | :----: | ------------- |
 | **Phase 0** | **Enterprise Foundation & Architecture** | **Completed & Verified** | Repository setup, 16 governance rules, .NET 10 LTS, dockerized PG, CI pipeline, health endpoints, minimal frontend shell |
-| **Phase 1A** | User Authentication & Identity Core | *Planned* | ASP.NET Identity, secure HttpOnly cookie auth, user registration, login, session state |
+| **Phase 1A.1** | **Secure Sign-In & Sign-Out (Auth Core)** | **Completed & Verified** | ASP.NET Identity, secure HttpOnly cookie auth, CSRF protection, lockout, session state, React login & account screen |
+| **Phase 1A.2** | **User Registration & Email Verification** | **Completed & Verified** | Self-service sign-up, password policy, local in-memory mailbox (`/dev/mailbox`), email confirmation, unconfirmed account login defense |
+| **Phase 1A.3** | Password Recovery & Reset | *Planned* | Secure password reset requests, reset tokens, and recovery workflow |
 | **Phase 1B** | Roles & Authorization Policies (RBAC) | *Planned* | System roles (`UniversityAdmin`, `FacilityAdmin`, `Coordinator`, `Participant`), permission policies, access control |
 | **Phase 1C** | University Organizations & Tenancy | *Planned* | Faculties, departments, student societies, coordinator membership assignment, organizational scoping |
 | **Phase 2** | Buildings & Reservable Spaces | *Planned* | Space catalog, capacities, audio-visual equipment, accessibility tags, photo galleries |
@@ -60,14 +62,25 @@ This document defines the complete multi-phase roadmap for CampusVenue, from Pha
 
 ### Phase 1 — Identity, Roles & University Organizations (Decomposed)
 
-#### Phase 1A: User Authentication & Identity Core
-- **Business Objective**: Enable users to securely register, log in, manage sessions, and log out using ASP.NET Core Identity with secure HttpOnly cookies.
+#### Phase 1A.1: Secure Sign-In & Sign-Out (Completed & Verified)
+- **Business Objective**: Enable users to securely log in, verify session state, and log out using ASP.NET Core Identity with same-origin HttpOnly cookies and anti-CSRF protection.
 - **Vertical Slice Scope**:
-  - **Backend**: `Identity` module core endpoints (`POST /api/auth/register`, `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/me`). ASP.NET Identity with password hashing and lockout.
-  - **Frontend**: Registration modal, Login modal, auth state context (`useAuth`), header user profile dropdown.
-  - **Database**: ASP.NET Core Identity schema (`AspNetUsers`, `AspNetUserClaims`, etc.).
-  - **Tests**: Positive/negative credential tests, password complexity tests, cookie security assertions.
-  - **Manual Verification**: Register new user `coordinator@campus.internal`, log in, verify session cookie, log out.
+  - **Backend**: `Identity` module endpoints (`GET /api/auth/antiforgery`, `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/me`). ASP.NET Identity with password hashing, account lockout (5 attempts), rate limiting, and Data Protection key ring persistence.
+  - **Frontend**: Accessible `LoginForm`, small protected `AccountScreen`, auth state context (`useAuth`), same-origin proxy configuration.
+  - **Database**: Forward-only migration `20261118061958_AddIdentityCore` mapping Identity tables to snake_case (`users`, `roles`, `user_roles`, `user_claims`, etc.) with Guid keys.
+  - **Tests**: 13 automated backend tests (signed-in/signed-out, lockout, throttling, CSRF, cookie attributes, session expiry) against real PostgreSQL; 7 frontend Vitest tests.
+  - **Manual Verification**: Runbook provided with `coordinator@campus.internal` dev seeding.
+
+#### Phase 1A.2: User Registration & Email Verification (Completed & Verified)
+- **Business Objective**: Enable self-service registration, password requirements validation, local verification token delivery via in-memory mailbox, and email confirmation enforcement.
+- **Vertical Slice Scope**:
+  - **Backend**: `POST /api/auth/register`, `POST /api/auth/confirm-email`, `GET /api/auth/confirm-email`, `GET /dev/mailbox`, `GET /api/dev/mailbox`, `POST /api/dev/mailbox/clear`.
+  - **Identity & Security**: Constant-time dummy password hash for duplicate registration prevention (no user enumeration), unconfirmed accounts blocked from sign-in (`EmailConfirmed = false`), tokens/links excluded from responses and logs.
+  - **Frontend**: Accessible `RegisterForm` with live checklist, `ConfirmationNotice`, `EmailVerificationScreen`, embedded `DevMailbox` tab, unconfirmed login alert.
+  - **Tests**: 26 backend integration tests in `CampusVenue.Tests`, 8 frontend Vitest tests.
+
+#### Phase 1A.3: Password Recovery & Reset (Planned)
+- **Business Objective**: Secure self-service password reset requests, reset tokens, and recovery workflow.
 
 #### Phase 1B: Roles & Authorization Policies (RBAC)
 - **Business Objective**: Implement institutional role hierarchies (`UniversityAdmin`, `FacilityAdmin`, `EventCoordinator`, `Participant`) and server-side policy enforcement.

@@ -15,6 +15,21 @@ jobs:
     name: Backend Build & Test (.NET 10 LTS)
     runs-on: ubuntu-latest
 
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: campusvenue_dev
+          POSTGRES_USER: campusvenue_user
+          POSTGRES_PASSWORD: campusvenue_dev_secret_change_me
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -32,6 +47,8 @@ jobs:
 
       - name: Run Backend Tests
         run: dotnet test backend/CampusVenue.sln --no-build -c Release --verbosity normal
+        env:
+          CAMPUSVENUE_TEST_CONNECTION_STRING: Host=localhost;Port=5432;Database=campusvenue_dev;Username=campusvenue_user;Password=campusvenue_dev_secret_change_me
 
   frontend-ci:
     name: Frontend Lint, Test & Build (Node 20)

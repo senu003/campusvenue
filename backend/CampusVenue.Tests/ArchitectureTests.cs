@@ -25,6 +25,6 @@ public class ArchitectureTests
         var dbContextType = typeof(CampusVenueDbContext);
 
         // Assert
-        dbContextType.BaseType.Should().Be(typeof(Microsoft.EntityFrameworkCore.DbContext));
+        typeof(Microsoft.EntityFrameworkCore.DbContext).IsAssignableFrom(dbContextType).Should().BeTrue();
     }
 }

@@ -1,0 +1,260 @@
+import type {
+  User,
+  LoginCredentials,
+  RegisterCredentials,
+  LoginResponseDto,
+  CurrentUserResponseDto,
+  LogoutResponseDto,
+  AntiforgeryResponseDto,
+  RegisterResponseDto,
+  ConfirmEmailResponseDto,
+  DevEmailDto,
+} from './types';
+
+// In-memory Antiforgery token cache. Never stored in localStorage or sessionStorage.
+let memoryAntiforgeryToken: string | null = null;
+
+export const setCachedAntiforgeryToken = (token: string | null): void => {
+  memoryAntiforgeryToken = token;
+};
+
+export const getCachedAntiforgeryToken = (): string | null => {
+  return memoryAntiforgeryToken;
+};
+
+export async function fetchAntiforgeryToken(): Promise<string> {
+  const response = await fetch('/api/auth/antiforgery', {
+    method: 'GET',
+    headers: {
+      'Accept': 'application/json',
+    },
+    credentials: 'include',
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to obtain security token: HTTP ${response.status}`);
+  }
+
+  const data: AntiforgeryResponseDto = await response.json();
+  memoryAntiforgeryToken = data.requestToken;
+  return data.requestToken;
+}
+
+export async function getCurrentUser(): Promise<User | null> {
+  const response = await fetch('/api/auth/me', {
+    method: 'GET',
+    headers: {
+      'Accept': 'application/json',
+    },
+    credentials: 'include',
+  });
+
+  if (response.status === 401) {
+    return null;
+  }
+
+  if (!response.ok) {
+    throw new Error(`Error verifying session: HTTP ${response.status}`);
+  }
+
+  const data: CurrentUserResponseDto = await response.json();
+  return {
+    id: data.id,
+    email: data.email,
+  };
+}
+
+export class AuthError extends Error {
+  isEmailUnconfirmed: boolean;
+
+  constructor(message: string, isEmailUnconfirmed = false) {
+    super(message);
+    this.name = 'AuthError';
+    this.isEmailUnconfirmed = isEmailUnconfirmed;
+  }
+}
+
+export async function loginUser(credentials: LoginCredentials): Promise<User> {
+  let token = memoryAntiforgeryToken;
+  if (!token) {
+    token = await fetchAntiforgeryToken();
+  }
+
+  const response = await fetch('/api/auth/login', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+      'X-XSRF-TOKEN': token,
+    },
+    credentials: 'include',
+    body: JSON.stringify({
+      email: credentials.email,
+      password: credentials.password,
+      rememberMe: credentials.rememberMe ?? false,
+    }),
+  });
+
+  if (response.status === 401) {
+    const errorData = await response.json().catch(() => null);
+    const title = (errorData && typeof errorData === 'object' && 'title' in errorData && typeof errorData.title === 'string')
+      ? errorData.title
+      : '';
+    const detail = (errorData && typeof errorData === 'object' && 'detail' in errorData && typeof errorData.detail === 'string')
+      ? errorData.detail
+      : 'Invalid email or password.';
+
+    const isUnconfirmed = title === 'Email Not Confirmed' || detail.toLowerCase().includes('confirm your email');
+    throw new AuthError(detail, isUnconfirmed);
+  }
+
+  if (response.status === 429) {
+    throw new AuthError('Too many sign-in attempts. Please wait a minute before trying again.');
+  }
+
+  if (response.status === 400) {
+    const errorData = await response.json().catch(() => null);
+    const detail = (errorData && typeof errorData === 'object' && 'detail' in errorData && typeof errorData.detail === 'string')
+      ? errorData.detail
+      : 'Request validation or security check failed.';
+    // If antiforgery failed, clear token so next attempt re-fetches
+    memoryAntiforgeryToken = null;
+    throw new AuthError(detail);
+  }
+
+  if (!response.ok) {
+    throw new AuthError(`Sign-in failed: Server returned HTTP ${response.status}`);
+  }
+
+  const data: LoginResponseDto = await response.json();
+  if (data.antiforgeryToken) {
+    memoryAntiforgeryToken = data.antiforgeryToken;
+  }
+
+  return {
+    id: data.user.id,
+    email: data.user.email,
+  };
+}
+
+export async function registerUser(credentials: RegisterCredentials): Promise<RegisterResponseDto> {
+  let token = memoryAntiforgeryToken;
+  if (!token) {
+    token = await fetchAntiforgeryToken();
+  }
+
+  const response = await fetch('/api/auth/register', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+      'X-XSRF-TOKEN': token,
+    },
+    credentials: 'include',
+    body: JSON.stringify({
+      email: credentials.email,
+      password: credentials.password,
+      confirmPassword: credentials.confirmPassword,
+    }),
+  });
+
+  if (response.status === 429) {
+    throw new Error('Too many registration requests. Please wait a minute before trying again.');
+  }
+
+  if (response.status === 400) {
+    const errorData = await response.json().catch(() => null);
+    const detail = (errorData && typeof errorData === 'object' && 'detail' in errorData && typeof errorData.detail === 'string')
+      ? errorData.detail
+      : 'Registration validation failed.';
+    throw new Error(detail);
+  }
+
+  if (!response.ok) {
+    throw new Error(`Registration failed: Server returned HTTP ${response.status}`);
+  }
+
+  const data: RegisterResponseDto = await response.json();
+  return data;
+}
+
+export async function confirmEmail(userId: string, token: string): Promise<ConfirmEmailResponseDto> {
+  const response = await fetch('/api/auth/confirm-email', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+    },
+    body: JSON.stringify({
+      userId,
+      token,
+    }),
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => null);
+    const detail = (errorData && typeof errorData === 'object' && 'detail' in errorData && typeof errorData.detail === 'string')
+      ? errorData.detail
+      : `Email confirmation failed with HTTP ${response.status}`;
+    throw new Error(detail);
+  }
+
+  const data: ConfirmEmailResponseDto = await response.json();
+  return data;
+}
+
+export async function logoutUser(): Promise<void> {
+  let token = memoryAntiforgeryToken;
+  if (!token) {
+    token = await fetchAntiforgeryToken().catch(() => null);
+  }
+
+  const headers: Record<string, string> = {
+    'Accept': 'application/json',
+  };
+  if (token) {
+    headers['X-XSRF-TOKEN'] = token;
+  }
+
+  const response = await fetch('/api/auth/logout', {
+    method: 'POST',
+    headers,
+    credentials: 'include',
+  });
+
+  if (response.ok) {
+    const data: LogoutResponseDto = await response.json().catch(() => null);
+    if (data && data.antiforgeryToken) {
+      memoryAntiforgeryToken = data.antiforgeryToken;
+    }
+  } else {
+    // If logout failed, refresh token for safety
+    memoryAntiforgeryToken = null;
+    throw new Error(`Logout failed with HTTP ${response.status}`);
+  }
+}
+
+export async function fetchDevMailbox(): Promise<DevEmailDto[]> {
+  const response = await fetch('/api/dev/mailbox', {
+    headers: {
+      'Accept': 'application/json',
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to load development mailbox: HTTP ${response.status}`);
+  }
+
+  const data: DevEmailDto[] = await response.json();
+  return data;
+}
+
+export async function clearDevMailbox(): Promise<void> {
+  const response = await fetch('/api/dev/mailbox/clear', {
+    method: 'POST',
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to clear development mailbox: HTTP ${response.status}`);
+  }
+}

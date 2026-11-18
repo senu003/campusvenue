@@ -1,4 +1,12 @@
-﻿# Security Policy — CampusVenue
+﻿cd E:\CampusVenue
+$env:DOTNET_ROOT = "$env:USERPROFILE\.dotnet"
+$env:PATH = "$env:USERPROFILE\.dotnet;$env:USERPROFILE\.dotnet\tools;$env:PATH"
+$env:ASPNETCORE_ENVIRONMENT = "Development"
+$env:ConnectionStrings__DefaultConnection = "Host=localhost;Port=5433;Database=campusvenue_dev;Username=campusvenue_user;Password=campusvenue_dev_secret_change_me"
+
+dotnet run --project backend/CampusVenue.Api -- `
+  --seed-dev-user-email "coordinator@campus.internal" `
+  --seed-dev-user-password "<YOUR_CHOSEN_PASSWORD>"# Security Policy — CampusVenue
 
 The CampusVenue engineering team prioritizes application security, confidentiality of institutional data, and operational integrity.
 

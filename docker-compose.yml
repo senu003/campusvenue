@@ -31,6 +31,8 @@ services:
       AllowedCorsOrigins: "http://localhost:3000,http://127.0.0.1:3000"
     ports:
       - "5000:5000"
+    volumes:
+      - campusvenue_dpkeys:/root/.aspnet/DataProtection-Keys
     depends_on:
       postgres:
         condition: service_healthy
@@ -49,3 +51,5 @@ services:
 volumes:
   campusvenue_pgdata:
     name: campusvenue_pgdata
+  campusvenue_dpkeys:
+    name: campusvenue_dpkeys
