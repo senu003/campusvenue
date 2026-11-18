@@ -12,6 +12,8 @@ import type {
   ForgotPasswordResponseDto,
   ResetPasswordCredentials,
   ResetPasswordResponseDto,
+  ChangePasswordCredentials,
+  ChangePasswordResponseDto,
   DevEmailDto,
 } from './types';
 
@@ -331,6 +333,58 @@ export async function resetPassword(credentials: ResetPasswordCredentials): Prom
   }
 
   const data: ResetPasswordResponseDto = await response.json();
+  return data;
+}
+
+export async function changePassword(credentials: ChangePasswordCredentials): Promise<ChangePasswordResponseDto> {
+  let token = memoryAntiforgeryToken;
+  if (!token) {
+    token = await fetchAntiforgeryToken();
+  }
+
+  const response = await fetch('/api/auth/change-password', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+      'X-XSRF-TOKEN': token,
+    },
+    credentials: 'include',
+    body: JSON.stringify({
+      currentPassword: credentials.currentPassword,
+      newPassword: credentials.newPassword,
+      confirmPassword: credentials.confirmPassword,
+    }),
+  });
+
+  if (response.status === 401) {
+    throw new Error('Your session has expired or is unauthorized. Please sign in again.');
+  }
+
+  if (response.status === 429) {
+    throw new Error('Too many password change attempts. Please wait a minute before trying again.');
+  }
+
+  if (response.status === 400) {
+    const errorData = await response.json().catch(() => null);
+    const detail = (errorData && typeof errorData === 'object' && 'detail' in errorData && typeof errorData.detail === 'string')
+      ? errorData.detail
+      : 'Password change validation failed.';
+    if (detail.toLowerCase().includes('antiforgery')) {
+      memoryAntiforgeryToken = null;
+    }
+    throw new Error(detail);
+  }
+
+  if (!response.ok) {
+    throw new Error(`Password change failed: Server returned HTTP ${response.status}`);
+  }
+
+  const data: ChangePasswordResponseDto = await response.json();
+  if (data.antiforgeryToken) {
+    memoryAntiforgeryToken = data.antiforgeryToken;
+  }
+
   return data;
 }
 

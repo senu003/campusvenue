@@ -96,6 +96,20 @@ This document defines the complete multi-phase roadmap for CampusVenue, from Pha
   - **Frontend**: Accessible `ForgotPasswordForm`, `ResetPasswordForm` with live requirements checklist, clear error/invalid/expired link states, URL fragment/query parameter cleanup, pre-filled login upon reset, and Dev Mailbox integration.
   - **Tests**: 43 backend integration tests in `CampusVenue.Tests`, 12 frontend Vitest tests.
 
+#### Phase 1A.4: Signed-In Password Change (Completed & Verified)
+- **Business Objective**: Enable authenticated users to securely change their password from My Account, verifying the current password, rotating the security stamp, terminating the current session, and rejecting other active sessions after the validation interval.
+- **Vertical Slice Scope**:
+  - **Backend**: `POST /api/auth/change-password` under `Modules/Identity/Features/ChangePassword`.
+  - **Security Invariants**:
+    - Requires authenticated session (`.RequireAuthorization()`); user identity is derived strictly from server-side claims (`ClaimTypes.NameIdentifier`).
+    - Validates current password using ASP.NET Core Identity (`UserManager.ChangePasswordAsync`).
+    - Enforces password complexity policy (8+ characters, uppercase, lowercase, digit, non-alphanumeric) and confirmation match.
+    - Protected by anti-CSRF token verification (`X-XSRF-TOKEN`) and endpoint rate limiting (`AuthLimiter`).
+    - Signs out current browser session (`SignInManager.SignOutAsync()`) and clears cookie.
+    - Security stamp is automatically rotated upon password change; other existing sessions are invalidated and rejected by `SecurityStampValidator` after the configured interval.
+  - **Frontend**: `ChangePasswordForm` in My Account (`AccountScreen.tsx`) with real-time requirements checklist, password visibility toggles, clear error states, and automatic redirection to Sign In with a success confirmation banner.
+  - **Tests**: 50 backend integration tests (7 dedicated ChangePassword tests covering 401 unauthorized, 400 bad CSRF, wrong current password, weak new password, mismatched confirmation, successful password change with session termination, and remote session rejection), 15 frontend Vitest tests.
+
 #### Phase 1B: Roles & Authorization Policies (RBAC)
 - **Business Objective**: Implement institutional role hierarchies (`UniversityAdmin`, `FacilityAdmin`, `EventCoordinator`, `Participant`) and server-side policy enforcement.
 - **Vertical Slice Scope**:

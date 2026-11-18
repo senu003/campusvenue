@@ -77,7 +77,9 @@ export const LoginForm: React.FC<LoginFormProps> = ({
         >
           <CheckCircle2 className="w-5 h-5 text-emerald-600 flex-shrink-0 mt-0.5" />
           <div className="text-xs leading-relaxed flex-1">
-            <span className="font-semibold block">Password Reset Completed</span>
+            <span className="font-semibold block">
+              {successMessage.toLowerCase().includes('change') ? 'Password Changed Successfully' : 'Password Reset Completed'}
+            </span>
             <span>{successMessage}</span>
           </div>
         </div>

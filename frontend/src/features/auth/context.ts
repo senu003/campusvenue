@@ -9,6 +9,7 @@ export interface AuthContextValue {
   login: (credentials: LoginCredentials) => Promise<boolean>;
   logout: () => Promise<void>;
   checkSession: () => Promise<void>;
+  clearSession: () => void;
   clearError: () => void;
 }
 

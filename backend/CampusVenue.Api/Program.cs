@@ -5,6 +5,7 @@ using CampusVenue.Api.Infrastructure.Health;
 using CampusVenue.Api.Infrastructure.Middleware;
 using CampusVenue.Api.Modules.Identity.Domain;
 using CampusVenue.Api.Modules.Identity.Features.Auth;
+using CampusVenue.Api.Modules.Identity.Features.ChangePassword;
 using CampusVenue.Api.Modules.Identity.Features.PasswordRecovery;
 using CampusVenue.Api.Modules.Identity.Services;
 using Microsoft.AspNetCore.DataProtection;
@@ -228,6 +229,7 @@ app.MapCampusVenueHealthEndpoint();
 // Map Module Endpoints
 app.MapAuthEndpoints();
 app.MapPasswordRecoveryEndpoints();
+app.MapChangePasswordEndpoints();
 
 app.Run();
 

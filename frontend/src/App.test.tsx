@@ -13,12 +13,14 @@ describe('App & Authentication Slice Component Tests', () => {
     authenticated?: boolean;
     loginSuccess?: boolean;
     emailUnconfirmed?: boolean;
+    changePasswordError?: string;
     mailboxMessages?: Array<{ id: string; to: string; subject: string; bodyHtml: string; sentAtUtc: string }>;
   }) => {
     const {
       healthOk = true,
       authenticated = false,
       emailUnconfirmed = false,
+      changePasswordError,
       mailboxMessages = [],
     } = options || {};
 
@@ -148,6 +150,28 @@ describe('App & Authentication Slice Component Tests', () => {
           status: 200,
           json: async () => ({
             message: 'Password has been successfully reset. You may now sign in with your new password.',
+          }),
+        } as Response;
+      }
+
+      if (url.includes('/api/auth/change-password')) {
+        if (changePasswordError) {
+          return {
+            ok: false,
+            status: 400,
+            json: async () => ({
+              title: 'Password Change Failed',
+              detail: changePasswordError,
+            }),
+          } as Response;
+        }
+
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            message: 'Password changed successfully. Please sign in with your new password.',
+            antiforgeryToken: 'anonymous-token-999',
           }),
         } as Response;
       }
@@ -492,6 +516,134 @@ describe('App & Authentication Slice Component Tests', () => {
     await waitFor(() => {
       expect(screen.getByText('Choose a new password')).toBeInTheDocument();
       expect(screen.getByTestId('reset-password-submit-btn')).toBeInTheDocument();
+    });
+  });
+
+  it('navigates to Account screen, toggles Change Password form, and verifies real-time password requirements', async () => {
+    setupFetchMock({ healthOk: true, authenticated: true });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByText('My Account')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText('My Account'));
+
+    await waitFor(() => {
+      expect(screen.getByText('Account Password')).toBeInTheDocument();
+      expect(screen.getByTestId('open-change-password-btn')).toBeInTheDocument();
+    });
+
+    // Open change password form
+    fireEvent.click(screen.getByTestId('open-change-password-btn'));
+
+    await waitFor(() => {
+      expect(screen.getByText('Change Account Password')).toBeInTheDocument();
+      expect(screen.getByLabelText(/^Current Password/i)).toBeInTheDocument();
+      expect(screen.getByLabelText(/^New Password/i)).toBeInTheDocument();
+      expect(screen.getByLabelText(/Confirm New Password/i, { selector: 'input' })).toBeInTheDocument();
+      expect(screen.getByText('New Password Requirements:')).toBeInTheDocument();
+    });
+
+    const submitBtn = screen.getByTestId('change-password-submit-btn');
+    expect(submitBtn).toBeDisabled();
+
+    // Type current password and weak new password
+    fireEvent.change(screen.getByLabelText(/^Current Password/i), { target: { value: 'OldPassword123!' } });
+    fireEvent.change(screen.getByLabelText(/^New Password/i), { target: { value: 'weak' } });
+    fireEvent.change(screen.getByLabelText(/Confirm New Password/i, { selector: 'input' }), { target: { value: 'weak' } });
+
+    expect(submitBtn).toBeDisabled();
+
+    // Type strong new password
+    fireEvent.change(screen.getByLabelText(/^New Password/i), { target: { value: 'NewSecurePass2026!' } });
+    fireEvent.change(screen.getByLabelText(/Confirm New Password/i, { selector: 'input' }), { target: { value: 'NewSecurePass2026!' } });
+
+    expect(submitBtn).not.toBeDisabled();
+
+    // Click cancel to return
+    fireEvent.click(screen.getByTestId('change-password-cancel-btn'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('open-change-password-btn')).toBeInTheDocument();
+      expect(screen.queryByText('Change Account Password')).not.toBeInTheDocument();
+    });
+  });
+
+  it('submits valid password change from Account screen, clears session, redirects to Sign In, and shows success notice', async () => {
+    setupFetchMock({ healthOk: true, authenticated: true });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByText('My Account')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText('My Account'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('open-change-password-btn')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTestId('open-change-password-btn'));
+
+    await waitFor(() => {
+      expect(screen.getByText('Change Account Password')).toBeInTheDocument();
+    });
+
+    fireEvent.change(screen.getByLabelText(/^Current Password/i), { target: { value: 'OldPassword123!' } });
+    fireEvent.change(screen.getByLabelText(/^New Password/i), { target: { value: 'NewSecurePass2026!' } });
+    fireEvent.change(screen.getByLabelText(/Confirm New Password/i, { selector: 'input' }), { target: { value: 'NewSecurePass2026!' } });
+
+    const submitBtn = screen.getByTestId('change-password-submit-btn');
+    expect(submitBtn).not.toBeDisabled();
+
+    fireEvent.click(submitBtn);
+
+    // Verify user is redirected to Sign In and success banner appears
+    await waitFor(() => {
+      expect(screen.getByTestId('login-success-banner')).toBeInTheDocument();
+      expect(screen.getByText('Password Changed Successfully')).toBeInTheDocument();
+      expect(screen.getByText(/Password changed successfully. Please sign in with your new password./i)).toBeInTheDocument();
+      expect(screen.getByText('Sign in to CampusVenue')).toBeInTheDocument();
+    });
+  });
+
+  it('displays error banner when changing password fails with incorrect current password', async () => {
+    setupFetchMock({
+      healthOk: true,
+      authenticated: true,
+      changePasswordError: 'The current password provided is incorrect.',
+    });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByText('My Account')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText('My Account'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('open-change-password-btn')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTestId('open-change-password-btn'));
+
+    await waitFor(() => {
+      expect(screen.getByText('Change Account Password')).toBeInTheDocument();
+    });
+
+    fireEvent.change(screen.getByLabelText(/^Current Password/i), { target: { value: 'WrongCurrentPassword!' } });
+    fireEvent.change(screen.getByLabelText(/^New Password/i), { target: { value: 'NewSecurePass2026!' } });
+    fireEvent.change(screen.getByLabelText(/Confirm New Password/i, { selector: 'input' }), { target: { value: 'NewSecurePass2026!' } });
+
+    fireEvent.click(screen.getByTestId('change-password-submit-btn'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('change-password-error-banner')).toBeInTheDocument();
+      expect(screen.getByText('The current password provided is incorrect.')).toBeInTheDocument();
     });
   });
 });

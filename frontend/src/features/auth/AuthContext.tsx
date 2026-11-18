@@ -83,6 +83,11 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   }, []);
 
+  const clearSession = useCallback(() => {
+    setUser(null);
+    setError(null);
+  }, []);
+
   const clearError = useCallback(() => {
     setError(null);
   }, []);
@@ -95,6 +100,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     login,
     logout,
     checkSession,
+    clearSession,
     clearError,
   };
 

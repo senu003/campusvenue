@@ -371,7 +371,13 @@ const CampusVenueContent: React.FC = () => {
         ) : activeTab === 'auth' ? (
           <section aria-label="Authentication Portal">
             {isAuthenticated ? (
-              <AccountScreen />
+              <AccountScreen
+                onPasswordChanged={(msg) => {
+                  setLoginSuccessMessage(msg);
+                  setAuthSubView('login');
+                  setActiveTab('auth');
+                }}
+              />
             ) : authSubView === 'verify' ? (
               <EmailVerificationScreen
                 userId={verifyParams.userId}

@@ -71,6 +71,7 @@ Phases 1-13 — Business Features:  [                    ] 0%   (Planned)
 | **Identity Core & Session Auth** | :white_check_mark: **Implemented & Verified** | Phase 1A.1 | ASP.NET Core Identity, same-origin HttpOnly cookies, antiforgery token refresh, rate limiting, lockout. |
 | **Self-Service Sign-Up & Email Verification** | :white_check_mark: **Implemented & Verified** | Phase 1A.2 | Self-service registration, password requirements, local in-memory mailbox (`/dev/mailbox`), and email confirmation. |
 | **Password Recovery & Reset** | :white_check_mark: **Implemented & Verified** | Phase 1A.3 | Secure self-service password reset requests, expiring reset tokens, uniform anti-enumeration responses, and security stamp session invalidation. |
+| **Signed-In Password Change** | :white_check_mark: **Implemented & Verified** | Phase 1A.4 | Authenticated password change in My Account, current password verification, session revocation, and security stamp invalidation. |
 | **Roles & Authorization Policies** | :hourglass: *Planned* | Phase 1B | RBAC claims (`UniversityAdmin`, `FacilityAdmin`, `Coordinator`, `Participant`). |
 | **University Organizations & Tenancy** | :hourglass: *Planned* | Phase 1C | Faculties, academic departments, student societies, coordinator assignment scoping. |
 | **Buildings & Space Inventory** | :hourglass: *Planned* | Phase 2 | Space catalog, equipment metadata, accessibility tags, photo galleries. |

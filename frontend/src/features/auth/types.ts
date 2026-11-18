@@ -74,6 +74,17 @@ export interface ResetPasswordResponseDto {
   message: string;
 }
 
+export interface ChangePasswordCredentials {
+  currentPassword: string;
+  newPassword: string;
+  confirmPassword: string;
+}
+
+export interface ChangePasswordResponseDto {
+  message: string;
+  antiforgeryToken?: string;
+}
+
 export interface DevEmailDto {
   id: string;
   to: string;
