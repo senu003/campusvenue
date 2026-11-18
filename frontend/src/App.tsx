@@ -29,8 +29,9 @@ import { EmailVerificationScreen } from './features/auth/EmailVerificationScreen
 import { ForgotPasswordForm } from './features/auth/ForgotPasswordForm';
 import { ResetPasswordForm } from './features/auth/ResetPasswordForm';
 import { DevMailbox } from './features/auth/DevMailbox';
+import { UsersScreen } from './features/users/UsersScreen';
 
-type ActiveTab = 'overview' | 'auth' | 'mailbox';
+type ActiveTab = 'overview' | 'auth' | 'mailbox' | 'users';
 type AuthSubView = 'login' | 'register' | 'confirmation-notice' | 'verify' | 'forgot-password' | 'reset-password';
 
 function parseInitialAuthParams(): {
@@ -73,6 +74,17 @@ function parseInitialAuthParams(): {
   if (tab === 'mailbox') {
     return {
       activeTab: 'mailbox',
+      authSubView: 'login',
+      verifyUserId: '',
+      verifyToken: '',
+      resetUserId: '',
+      resetToken: '',
+    };
+  }
+
+  if (tab === 'users') {
+    return {
+      activeTab: 'users',
       authSubView: 'login',
       verifyUserId: '',
       verifyToken: '',
@@ -149,6 +161,10 @@ function parseInitialAuthParams(): {
 const CampusVenueContent: React.FC = () => {
   const { user, isAuthenticated, logout, isLoading: authLoading } = useAuth();
   const [initialAuth] = useState(parseInitialAuthParams);
+
+  const isUniversityAdmin = user?.roles?.includes('UniversityAdmin') ?? false;
+  const isMfaCompleted = user?.mfaCompleted ?? false;
+  const canAccessUsers = isAuthenticated && isUniversityAdmin && isMfaCompleted;
 
   const [verifyParams, setVerifyParams] = useState<{ userId: string; token: string }>({
     userId: initialAuth.verifyUserId,
@@ -308,6 +324,19 @@ const CampusVenueContent: React.FC = () => {
                 <Inbox className="w-3.5 h-3.5" />
                 <span>Dev Mailbox</span>
               </button>
+              {canAccessUsers && (
+                <button
+                  data-testid="nav-users-tab"
+                  onClick={() => setActiveTab('users')}
+                  className={`px-3 py-1.5 text-xs font-medium rounded-md transition cursor-pointer flex items-center space-x-1.5 ${activeTab === 'users'
+                    ? 'bg-white text-purple-700 shadow-xs font-semibold'
+                    : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                >
+                  <Users className="w-3.5 h-3.5 text-purple-600" />
+                  <span>Users</span>
+                </button>
+              )}
             </nav>
 
             <a
@@ -365,6 +394,18 @@ const CampusVenueContent: React.FC = () => {
                 setResetParams({ userId, token });
                 setAuthSubView('reset-password');
                 setActiveTab('auth');
+              }}
+            />
+          </section>
+        ) : activeTab === 'users' ? (
+          <section aria-label="Institutional User Directory">
+            <UsersScreen
+              onNavigateToAccount={() => {
+                setActiveTab('auth');
+              }}
+              onNavigateToLogin={() => {
+                setActiveTab('auth');
+                setAuthSubView('login');
               }}
             />
           </section>

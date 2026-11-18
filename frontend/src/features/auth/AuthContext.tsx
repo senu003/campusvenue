@@ -70,6 +70,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
       setPendingTwoFactor(false);
       setUser(result.user ?? null);
+      getCurrentUser().then((u) => {
+        if (u) setUser(u);
+      }).catch(() => {});
       return { success: true, requiresTwoFactor: false };
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Sign-in failed. Please verify credentials.';
@@ -87,6 +90,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       const authenticatedUser = await verifyTwoFactorChallenge({ code, isRecoveryCode, rememberMe });
       setUser(authenticatedUser);
       setPendingTwoFactor(false);
+      getCurrentUser().then((u) => {
+        if (u) setUser(u);
+      }).catch(() => {});
       return true;
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Two-factor verification failed.';

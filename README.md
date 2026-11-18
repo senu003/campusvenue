@@ -74,7 +74,8 @@ Phases 1-13 — Business Features:  [                    ] 0%   (Planned)
 | **Signed-In Password Change** | :white_check_mark: **Implemented & Verified** | Phase 1A.4 | Authenticated password change in My Account, current password verification, session revocation, and security stamp invalidation. |
 | **Sign Out Everywhere** | :white_check_mark: **Implemented & Verified** | Phase 1A.5 | Revoke all active sessions via SecurityStamp rotation, immediate local termination, and delayed remote rejection. |
 | **Authenticator MFA & Recovery Codes** | :white_check_mark: **Implemented & Verified** | Phase 1A.6 | TOTP authenticator enrollment, local SVG QR code generation, 10 single-use recovery codes, short-lived 2FA challenge flow, secure regenerate/disable. |
-| **Roles & Authorization Policies** | :hourglass: *Planned* | Phase 1B | RBAC claims (`UniversityAdmin`, `FacilityAdmin`, `Coordinator`, `Participant`). |
+| **Administrator User Directory & Role Model** | :white_check_mark: **Implemented & Verified** | Phase 1B.1 | Institutional roles (`UniversityAdmin`, `FacilityAdmin`, `EventCoordinator`, `Participant`), operator-only elevation, paginated directory API, and mandatory MFA session enforcement. |
+| **Roles & Authorization Policies** | :hourglass: *Planned* | Phase 1B.2+ | Administrative role assignment endpoints (`POST /api/users/{id}/roles`), organization-scoped permissions. |
 | **University Organizations & Tenancy** | :hourglass: *Planned* | Phase 1C | Faculties, academic departments, student societies, coordinator assignment scoping. |
 | **Buildings & Space Inventory** | :hourglass: *Planned* | Phase 2 | Space catalog, equipment metadata, accessibility tags, photo galleries. |
 | **Availability Calendar & Buffer Math** | :hourglass: *Planned* | Phase 3 | Timetable blockouts, setup/teardown buffers, recurring semester rules. |
@@ -303,6 +304,15 @@ dotnet run --project backend/CampusVenue.Api -- `
   --seed-dev-user-email "coordinator@campus.internal" `
   --seed-dev-user-password "CampusVenue2026!"
 ```
+
+### Step 2c: Operator-Only University Administrator Elevation (Phase 1B.1)
+Grant the `UniversityAdmin` role to an existing confirmed test account via an explicit one-time operator CLI command. This command executes the role elevation and immediately exits (without running the web server). Regular API startup contains zero automatic elevation paths, ensuring a restart cannot restore privileges that were revoked:
+```powershell
+# Explicit one-time operator CLI command (elevates account and immediately exits with exit code 0):
+dotnet run --project backend/CampusVenue.Api -- --grant-admin-email "admin@campus.internal"
+```
+> [!NOTE]
+> The target account must already exist and have confirmed its email address. Nonexistent or unconfirmed accounts are rejected. The web server does not start when `--grant-admin-email` is specified. After running the operator command, start the server normally with `dotnet run --project backend/CampusVenue.Api`.
 
 ### Step 3: Run Frontend Single Page App
 In a separate terminal:

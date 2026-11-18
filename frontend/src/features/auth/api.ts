@@ -79,6 +79,8 @@ export async function getCurrentUser(): Promise<User | null> {
     id: data.id,
     email: data.email,
     twoFactorEnabled: data.twoFactorEnabled ?? false,
+    roles: data.roles ?? ['Participant'],
+    mfaCompleted: data.mfaCompleted ?? false,
   };
 }
 
@@ -526,6 +528,7 @@ export async function verifyTwoFactorChallenge(params: TwoFactorChallengeRequest
     id: data.user?.id ?? '',
     email: data.user?.email ?? '',
     twoFactorEnabled: true,
+    mfaCompleted: true,
   };
 }
 

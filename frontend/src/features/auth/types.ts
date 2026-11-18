@@ -2,6 +2,8 @@ export interface User {
   id: string;
   email: string;
   twoFactorEnabled?: boolean;
+  roles?: string[];
+  mfaCompleted?: boolean;
 }
 
 export interface LoginCredentials {
@@ -33,6 +35,8 @@ export interface CurrentUserResponseDto {
   email: string;
   isAuthenticated: boolean;
   twoFactorEnabled?: boolean;
+  roles?: string[];
+  mfaCompleted?: boolean;
 }
 
 export interface LogoutResponseDto {

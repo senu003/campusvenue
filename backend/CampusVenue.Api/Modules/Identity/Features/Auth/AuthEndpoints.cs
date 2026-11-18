@@ -171,7 +171,21 @@ public static class AuthEndpoints
                 return Results.Unauthorized();
             }
 
-            return Results.Ok(new CurrentUserResponse(user.Id, user.Email ?? string.Empty, true, user.TwoFactorEnabled));
+            var roles = await userManager.GetRolesAsync(user);
+            if (roles.Count == 0)
+            {
+                roles = [CampusRoles.Participant];
+            }
+
+            var mfaCompleted = context.User.HasClaim("amr", "mfa");
+
+            return Results.Ok(new CurrentUserResponse(
+                user.Id,
+                user.Email ?? string.Empty,
+                true,
+                user.TwoFactorEnabled,
+                roles.ToList(),
+                mfaCompleted));
         })
         .WithName("GetCurrentUser")
         .WithSummary("Get authenticated user information from active session cookie")
@@ -294,6 +308,8 @@ public static class AuthEndpoints
                     title: "Registration Failed",
                     detail: errors);
             }
+
+            // Public registration preserves standard participant access and never grants elevated roles
 
             // Generate email confirmation token
             var token = await userManager.GenerateEmailConfirmationTokenAsync(newUser);

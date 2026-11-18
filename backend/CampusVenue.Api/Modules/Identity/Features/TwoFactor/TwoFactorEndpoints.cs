@@ -465,6 +465,10 @@ public static class TwoFactorEndpoints
             if (result.Succeeded)
             {
                 var principal = await signInManager.CreateUserPrincipalAsync(twoFactorUser);
+                if (principal.Identity is ClaimsIdentity identity && !principal.HasClaim("amr", "mfa"))
+                {
+                    identity.AddClaim(new Claim("amr", "mfa"));
+                }
                 context.User = principal;
                 var refreshedTokens = antiforgery.GetAndStoreTokens(context);
 

@@ -6,6 +6,7 @@ using System.Text.Json;
 using CampusVenue.Api.Infrastructure.Data;
 using CampusVenue.Api.Modules.Identity.Domain;
 using CampusVenue.Api.Modules.Identity.Features.Auth;
+using CampusVenue.Api.Modules.Identity.Services;
 using FluentAssertions;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Hosting;
@@ -55,6 +56,7 @@ public static class TestDatabaseHelper
             using var scope = services.CreateScope();
             var dbContext = scope.ServiceProvider.GetRequiredService<CampusVenueDbContext>();
             dbContext.Database.Migrate();
+            IdentityRoleSeeder.SeedRolesAsync(services).GetAwaiter().GetResult();
             _migrated = true;
         }
     }

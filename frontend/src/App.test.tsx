@@ -18,6 +18,8 @@ describe('App & Authentication Slice Component Tests', () => {
     signOutEverywhereError?: string;
     twoFactorEnabled?: boolean;
     recoveryCodesLeft?: number;
+    roles?: string[];
+    mfaCompleted?: boolean;
     enrollError?: string;
     challengeError?: string;
     mailboxMessages?: Array<{ id: string; to: string; subject: string; bodyHtml: string; sentAtUtc: string }>;
@@ -31,6 +33,8 @@ describe('App & Authentication Slice Component Tests', () => {
       signOutEverywhereError,
       twoFactorEnabled = false,
       recoveryCodesLeft,
+      roles,
+      mfaCompleted = false,
       enrollError,
       challengeError,
       mailboxMessages = [],
@@ -87,6 +91,8 @@ describe('App & Authentication Slice Component Tests', () => {
               email: 'coordinator@campus.internal',
               isAuthenticated: true,
               twoFactorEnabled: twoFactorEnabled ?? false,
+              roles: roles ?? ['Participant'],
+              mfaCompleted: mfaCompleted ?? false,
             }),
           } as Response;
         }
@@ -94,6 +100,29 @@ describe('App & Authentication Slice Component Tests', () => {
           ok: false,
           status: 401,
           json: async () => ({ title: 'Unauthorized' }),
+        } as Response;
+      }
+
+      if (url.includes('/api/users')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            items: [
+              {
+                id: '11111111-2222-3333-4444-555555555555',
+                email: 'admin@campus.internal',
+                roles: ['UniversityAdmin'],
+                emailConfirmed: true,
+                twoFactorEnabled: true,
+                createdAtUtc: '2026-11-18T10:00:00Z',
+              },
+            ],
+            page: 1,
+            pageSize: 10,
+            totalCount: 1,
+            totalPages: 1,
+          }),
         } as Response;
       }
 
@@ -1171,6 +1200,48 @@ describe('App & Authentication Slice Component Tests', () => {
     await waitFor(() => {
       expect(screen.getAllByText('coordinator@campus.internal').length).toBeGreaterThan(0);
       expect(screen.getAllByRole('button', { name: /Sign Out/i }).length).toBeGreaterThan(0);
+    });
+  });
+
+  it('does not display Users nav tab for standard participant or admin without MFA session', async () => {
+    setupFetchMock({
+      healthOk: true,
+      authenticated: true,
+      roles: ['Participant'],
+      mfaCompleted: false,
+    });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('nav-overview-tab')).toBeInTheDocument();
+      expect(screen.getByTestId('nav-auth-tab')).toBeInTheDocument();
+    });
+
+    expect(screen.queryByTestId('nav-users-tab')).not.toBeInTheDocument();
+  });
+
+  it('displays Users navigation tab and navigates to directory when session has UniversityAdmin and completed MFA', async () => {
+    setupFetchMock({
+      healthOk: true,
+      authenticated: true,
+      roles: ['UniversityAdmin'],
+      mfaCompleted: true,
+      twoFactorEnabled: true,
+    });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('nav-users-tab')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTestId('nav-users-tab'));
+
+    await waitFor(() => {
+      expect(screen.getByText('Institutional User Directory')).toBeInTheDocument();
+      expect(screen.getByTestId('users-table')).toBeInTheDocument();
+      expect(screen.getByText('admin@campus.internal')).toBeInTheDocument();
     });
   });
 });

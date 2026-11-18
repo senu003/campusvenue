@@ -15,7 +15,8 @@ This document defines the complete multi-phase roadmap for CampusVenue, from Pha
 | **Phase 1A.4** | **Signed-In Password Change** | **Completed & Verified** | Authenticated password change in My Account, current password verification, session revocation, and security stamp invalidation |
 | **Phase 1A.5** | **Sign Out Everywhere** | **Completed & Verified** | Revoke all active sessions via SecurityStamp rotation, immediate local termination, and delayed remote rejection |
 | **Phase 1A.6** | **Authenticator MFA & Recovery Codes** | **Completed & Verified** | TOTP authenticator enrollment, local SVG QR codes, 10 single-use recovery codes, short-lived 2FA challenge flow, secure regenerate/disable |
-| **Phase 1B** | Roles & Authorization Policies (RBAC) | *Planned* | System roles (`UniversityAdmin`, `FacilityAdmin`, `Coordinator`, `Participant`), permission policies, access control |
+| **Phase 1B.1** | **Administrator User Directory** | **Completed & Verified** | Institutional role definitions (`UniversityAdmin`, `FacilityAdmin`, `EventCoordinator`, `Participant`), operator-only elevation, paginated directory API, MFA session policy enforcement |
+| **Phase 1B.2+** | Roles & Authorization Policies (RBAC) | *Planned* | Role assignment endpoints (`POST /api/users/{id}/roles`), organization-scoped permissions |
 | **Phase 1C** | University Organizations & Tenancy | *Planned* | Faculties, departments, student societies, coordinator membership assignment, organizational scoping |
 | **Phase 2** | Buildings & Reservable Spaces | *Planned* | Space catalog, capacities, audio-visual equipment, accessibility tags, photo galleries |
 | **Phase 3** | Availability Calendar & Constraints | *Planned* | Timetable blockouts, setup/teardown buffers, maintenance windows, interval math |
@@ -146,13 +147,27 @@ This document defines the complete multi-phase roadmap for CampusVenue, from Pha
   - **Tests**: 75 backend integration tests (20 dedicated TwoFactor tests), 24 frontend Vitest tests.
 
 #### Phase 1B: Roles & Authorization Policies (RBAC)
-- **Business Objective**: Implement institutional role hierarchies (`UniversityAdmin`, `FacilityAdmin`, `EventCoordinator`, `Participant`) and server-side policy enforcement.
+
+##### Phase 1B.1: Administrator User Directory (Completed & Verified)
+- **Business Objective**: Define standard institutional roles (`UniversityAdmin`, `FacilityAdmin`, `EventCoordinator`, `Participant`) using ASP.NET Core Identity and PostgreSQL, provide an operator-only startup elevation mechanism, and deliver a read-only, paginated Users screen and API strictly protected by a policy requiring UniversityAdmin and a session with completed MFA.
 - **Vertical Slice Scope**:
-  - **Backend**: Role definitions, seed data for initial institutional admin, endpoint authorization attributes (`[Authorize(Policy = "...")]`), role assignment endpoints (`POST /api/users/{id}/roles`).
-  - **Frontend**: Role-aware UI elements (navigation pills, admin badge, unauthorized access barriers).
-  - **Database**: Identity role tables (`AspNetRoles`, `AspNetUserRoles`).
-  - **Tests**: 401 Unauthorized and 403 Forbidden integration tests verifying policy evaluation.
-  - **Manual Verification**: Log in as Participant and attempt admin endpoint (verify 403); log in as University Admin and verify access.
+  - **Backend**:
+    - Defined `UniversityAdmin`, `FacilityAdmin`, `EventCoordinator`, and `Participant` in `CampusRoles`.
+    - Automatic startup role provisioner (`IdentityRoleSeeder`).
+    - Operator-only administrative elevation (`OperatorRoleProvisioner`) via explicit one-time CLI command `--grant-admin-email <email>` which performs elevation and immediately exits. Regular server startup contains zero automatic elevation paths. Rejects nonexistent or unconfirmed accounts; zero hardcoded admin passwords or public bootstrap endpoints.
+    - Read-only user directory endpoint `GET /api/users` with server-side pagination (`page`, `pageSize`) and case-insensitive search (`search`).
+    - Protected by `UniversityAdminWithMfa` policy requiring both `UniversityAdmin` role and an active session that actually completed MFA (`amr: mfa`). Password-only admin sessions strictly receive 403 Forbidden.
+    - Updated `GET /api/auth/me` to return `roles` and `mfaCompleted` session state.
+    - Public registration strictly preserves standard `Participant` access and cannot grant administrative roles.
+  - **Frontend**:
+    - Dedicated feature folder `frontend/src/features/users/` (`UsersScreen.tsx`, `api.ts`, `types.ts`).
+    - Navigation tab for "Users" rendered only when session has verified access (`UniversityAdmin` + completed MFA).
+    - Clear access denied handling explaining authorization gaps (signed out, non-admin role, or password-only session).
+    - Search bar, role badges, MFA status indicator, loading skeleton, empty state, and pagination controls.
+  - **Tests**: 92 backend integration tests in `CampusVenue.Tests` (16 dedicated UserDirectory tests), 33 frontend Vitest tests.
+
+##### Phase 1B.2+: Administrative Role Assignment & Scoped Permissions (Planned)
+- **Scope**: Role assignment endpoints (`POST /api/users/{id}/roles`), organization-scoped permissions, and coordinator administrative assignments.
 
 #### Phase 1C: University Organizations & Tenancy
 - **Business Objective**: Model university faculties, academic departments, and student societies, assigning coordinators to specific organizational units.

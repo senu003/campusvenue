@@ -1,4 +1,5 @@
 using System.Threading.RateLimiting;
+using CampusVenue.Api.Common;
 using CampusVenue.Api.Infrastructure.Data;
 using CampusVenue.Api.Infrastructure.Email;
 using CampusVenue.Api.Infrastructure.Health;
@@ -9,6 +10,7 @@ using CampusVenue.Api.Modules.Identity.Features.ChangePassword;
 using CampusVenue.Api.Modules.Identity.Features.PasswordRecovery;
 using CampusVenue.Api.Modules.Identity.Features.SignOutEverywhere;
 using CampusVenue.Api.Modules.Identity.Features.TwoFactor;
+using CampusVenue.Api.Modules.Identity.Features.Users;
 using CampusVenue.Api.Modules.Identity.Services;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.DataProtection;
@@ -121,7 +123,15 @@ builder.Services.Configure<CookieAuthenticationOptions>(IdentityConstants.TwoFac
     };
 });
 
-builder.Services.AddAuthorization();
+builder.Services.AddAuthorization(options =>
+{
+    options.AddPolicy(AuthorizationPolicies.UniversityAdminWithMfa, policy =>
+    {
+        policy.RequireAuthenticatedUser();
+        policy.RequireRole(CampusRoles.UniversityAdmin);
+        policy.RequireClaim("amr", "mfa");
+    });
+});
 
 // 6. Antiforgery Configuration
 builder.Services.AddAntiforgery(options =>
@@ -226,6 +236,18 @@ app.UseAuthentication();
 app.UseAuthorization();
 app.UseAntiforgery();
 
+// Seed default institutional roles if not present
+await IdentityRoleSeeder.SeedRolesAsync(app.Services);
+
+// Process operator role commands if supplied via CLI.
+// If an operator command (e.g., --grant-admin-email) was passed, the command executes and exits immediately
+// without starting the web server. This ensures elevation is a one-time operation and cannot be re-applied on server restart.
+var isOperatorCommand = await OperatorRoleProvisioner.ProcessOperatorCommandsAsync(app.Services, args, app.Logger);
+if (isOperatorCommand)
+{
+    return;
+}
+
 // Seed dev user if explicitly supplied in Development
 await DevUserSeeder.SeedDevUserAsync(app.Services, app.Environment, args, app.Configuration, app.Logger);
 
@@ -233,7 +255,7 @@ await DevUserSeeder.SeedDevUserAsync(app.Services, app.Environment, args, app.Co
 app.MapGet("/", () => Results.Ok(new
 {
     name = "CampusVenue API",
-    version = "1.0.0-phase1a.1",
+    version = "1.0.0-phase1b.1",
     status = "Active",
     documentation = "/swagger",
     health = "/health"
@@ -251,6 +273,7 @@ app.MapPasswordRecoveryEndpoints();
 app.MapChangePasswordEndpoints();
 app.MapSignOutEverywhereEndpoints();
 app.MapTwoFactorEndpoints();
+app.MapUserDirectoryEndpoints();
 
 app.Run();
 
