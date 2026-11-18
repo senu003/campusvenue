@@ -20,7 +20,7 @@ public class SignOutEverywhereIntegrationTests : IClassFixture<TestWebApplicatio
     public SignOutEverywhereIntegrationTests(TestWebApplicationFactory factory)
     {
         _factory = factory;
-        TestDatabaseHelper.EnsureMigrated(factory.Services);
+        TestDatabaseHelper.EnsureMigrated();
         _client = factory.CreateClient(new WebApplicationFactoryClientOptions
         {
             AllowAutoRedirect = false,

@@ -16,6 +16,7 @@ using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Xunit;
 
 namespace CampusVenue.Tests;
@@ -23,6 +24,8 @@ namespace CampusVenue.Tests;
 /// <summary>
 /// Helper for resolving the PostgreSQL test database connection and applying pending migrations.
 /// Requires an explicit test database connection string via environment variables.
+/// Migrates the schema directly before any integration-test API host starts so that
+/// Program.cs startup routines (such as IdentityRoleSeeder) find existing tables.
 /// </summary>
 public static class TestDatabaseHelper
 {
@@ -47,25 +50,69 @@ public static class TestDatabaseHelper
             "Example: $env:CAMPUSVENUE_TEST_CONNECTION_STRING = \"Host=localhost;Port=5433;Database=campusvenue_dev;Username=campusvenue_user;Password=...\"");
     }
 
-    public static void EnsureMigrated(IServiceProvider services)
+    public static void EnsureMigrated(IServiceProvider? services = null)
     {
         if (_migrated) return;
         lock (_migrationLock)
         {
             if (_migrated) return;
-            using var scope = services.CreateScope();
-            var dbContext = scope.ServiceProvider.GetRequiredService<CampusVenueDbContext>();
+
+            var optionsBuilder = new DbContextOptionsBuilder<CampusVenueDbContext>();
+            optionsBuilder.UseNpgsql(ConnectionString, npgsqlOptions =>
+            {
+                npgsqlOptions.MigrationsAssembly(typeof(CampusVenueDbContext).Assembly.FullName);
+            });
+
+            using var dbContext = new CampusVenueDbContext(optionsBuilder.Options);
             dbContext.Database.Migrate();
-            IdentityRoleSeeder.SeedRolesAsync(services).GetAwaiter().GetResult();
+
+            // Seed institutional authorization roles under the migration lock so that all
+            // test API hosts find the schema and standard roles populated upon initial startup.
+            foreach (var roleName in CampusRoles.All)
+            {
+                var normalized = roleName.ToUpperInvariant();
+                if (!dbContext.Roles.Any(r => r.NormalizedName == normalized))
+                {
+                    dbContext.Roles.Add(new ApplicationRole
+                    {
+                        Id = Guid.NewGuid(),
+                        Name = roleName,
+                        NormalizedName = normalized,
+                        Description = CampusRoles.GetDescription(roleName),
+                        CreatedAtUtc = DateTime.UtcNow,
+                        ConcurrencyStamp = Guid.NewGuid().ToString()
+                    });
+                }
+            }
+            dbContext.SaveChanges();
+
             _migrated = true;
+        }
+    }
+
+    public static void ResetMigrationState()
+    {
+        lock (_migrationLock)
+        {
+            _migrated = false;
         }
     }
 }
 
-public class TestWebApplicationFactory : WebApplicationFactory<Program>
+public abstract class CampusVenueWebApplicationFactory : WebApplicationFactory<Program>
+{
+    protected override IHost CreateHost(IHostBuilder builder)
+    {
+        TestDatabaseHelper.EnsureMigrated();
+        return base.CreateHost(builder);
+    }
+}
+
+public class TestWebApplicationFactory : CampusVenueWebApplicationFactory
 {
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
+        TestDatabaseHelper.EnsureMigrated();
         builder.UseEnvironment("Development");
 
         builder.ConfigureTestServices(services =>
@@ -96,10 +143,11 @@ public class TestWebApplicationFactory : WebApplicationFactory<Program>
     }
 }
 
-public class ProductionHttpsWebApplicationFactory : WebApplicationFactory<Program>
+public class ProductionHttpsWebApplicationFactory : CampusVenueWebApplicationFactory
 {
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
+        TestDatabaseHelper.EnsureMigrated();
         builder.UseEnvironment("Production");
 
         builder.ConfigureTestServices(services =>
@@ -130,10 +178,11 @@ public class ProductionHttpsWebApplicationFactory : WebApplicationFactory<Progra
     }
 }
 
-public class ThrottledWebApplicationFactory : WebApplicationFactory<Program>
+public class ThrottledWebApplicationFactory : CampusVenueWebApplicationFactory
 {
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
+        TestDatabaseHelper.EnsureMigrated();
         builder.UseEnvironment("Development");
 
         builder.ConfigureTestServices(services =>
@@ -164,10 +213,11 @@ public class ThrottledWebApplicationFactory : WebApplicationFactory<Program>
     }
 }
 
-public class ShortLivedSessionWebApplicationFactory : WebApplicationFactory<Program>
+public class ShortLivedSessionWebApplicationFactory : CampusVenueWebApplicationFactory
 {
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
+        TestDatabaseHelper.EnsureMigrated();
         builder.UseEnvironment("Development");
 
         builder.ConfigureTestServices(services =>
@@ -214,7 +264,7 @@ public class AuthIntegrationTests : IClassFixture<TestWebApplicationFactory>
     public AuthIntegrationTests(TestWebApplicationFactory factory)
     {
         _factory = factory;
-        TestDatabaseHelper.EnsureMigrated(factory.Services);
+        TestDatabaseHelper.EnsureMigrated();
         _client = factory.CreateClient(new WebApplicationFactoryClientOptions
         {
             AllowAutoRedirect = false,
@@ -626,7 +676,7 @@ public class SessionExpiryIntegrationTests : IClassFixture<ShortLivedSessionWebA
     public SessionExpiryIntegrationTests(ShortLivedSessionWebApplicationFactory factory)
     {
         _factory = factory;
-        TestDatabaseHelper.EnsureMigrated(factory.Services);
+        TestDatabaseHelper.EnsureMigrated();
     }
 
     [Fact]
@@ -691,7 +741,7 @@ public class RateLimitingIntegrationTests : IClassFixture<ThrottledWebApplicatio
     public RateLimitingIntegrationTests(ThrottledWebApplicationFactory factory)
     {
         _factory = factory;
-        TestDatabaseHelper.EnsureMigrated(factory.Services);
+        TestDatabaseHelper.EnsureMigrated();
     }
 
     [Fact]
@@ -779,7 +829,7 @@ public class ProductionCookieSecurityTests : IClassFixture<ProductionHttpsWebApp
     public ProductionCookieSecurityTests(ProductionHttpsWebApplicationFactory factory)
     {
         _factory = factory;
-        TestDatabaseHelper.EnsureMigrated(factory.Services);
+        TestDatabaseHelper.EnsureMigrated();
     }
 
     [Fact]

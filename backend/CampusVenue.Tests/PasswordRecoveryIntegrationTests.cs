@@ -86,7 +86,7 @@ public class PasswordRecoveryIntegrationTests : IClassFixture<TestWebApplication
     public PasswordRecoveryIntegrationTests(TestWebApplicationFactory factory)
     {
         _factory = factory;
-        TestDatabaseHelper.EnsureMigrated(factory.Services);
+        TestDatabaseHelper.EnsureMigrated();
         _client = factory.CreateClient(new WebApplicationFactoryClientOptions
         {
             AllowAutoRedirect = false,
