@@ -7,9 +7,9 @@ public record LoginRequest(string Email, string Password, bool RememberMe = fals
 
 public record UserDto(Guid Id, string Email);
 
-public record LoginResponse(string Message, UserDto User, string AntiforgeryToken);
+public record LoginResponse(string Message, UserDto? User, string AntiforgeryToken, bool RequiresTwoFactor = false);
 
-public record CurrentUserResponse(Guid Id, string Email, bool IsAuthenticated);
+public record CurrentUserResponse(Guid Id, string Email, bool IsAuthenticated, bool TwoFactorEnabled = false);
 
 public record LogoutResponse(string Message, string AntiforgeryToken);
 

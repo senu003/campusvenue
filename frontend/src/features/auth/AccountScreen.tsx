@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { ShieldCheck, LogOut, RefreshCw, KeyRound, CheckCircle2, Clock, Lock, AlertCircle, Loader2 } from 'lucide-react';
 import { useAuth } from './useAuth';
 import { ChangePasswordForm } from './ChangePasswordForm';
+import { TwoFactorSection } from './TwoFactorSection';
 import { signOutEverywhere } from './api';
 
 interface AccountScreenProps {
@@ -156,6 +157,9 @@ export const AccountScreen: React.FC<AccountScreenProps> = ({
           </button>
         </div>
       )}
+
+      {/* Two-Factor Authentication (MFA) Section */}
+      <TwoFactorSection />
 
       {/* Sign Out Everywhere Section */}
       <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">

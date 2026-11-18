@@ -8,7 +8,9 @@ using CampusVenue.Api.Modules.Identity.Features.Auth;
 using CampusVenue.Api.Modules.Identity.Features.ChangePassword;
 using CampusVenue.Api.Modules.Identity.Features.PasswordRecovery;
 using CampusVenue.Api.Modules.Identity.Features.SignOutEverywhere;
+using CampusVenue.Api.Modules.Identity.Features.TwoFactor;
 using CampusVenue.Api.Modules.Identity.Services;
+using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Identity;
@@ -99,6 +101,22 @@ builder.Services.ConfigureApplicationCookie(options =>
     options.Events.OnRedirectToAccessDenied = context =>
     {
         context.Response.StatusCode = StatusCodes.Status403Forbidden;
+        return Task.CompletedTask;
+    };
+});
+
+builder.Services.Configure<CookieAuthenticationOptions>(IdentityConstants.TwoFactorUserIdScheme, options =>
+{
+    options.Cookie.Name = "CampusVenue.TwoFactorUserId";
+    options.Cookie.HttpOnly = true;
+    options.Cookie.SameSite = SameSiteMode.Lax;
+    options.Cookie.SecurePolicy = builder.Environment.IsProduction()
+        ? CookieSecurePolicy.Always
+        : CookieSecurePolicy.SameAsRequest;
+    options.ExpireTimeSpan = TimeSpan.FromMinutes(5);
+    options.Events.OnRedirectToLogin = context =>
+    {
+        context.Response.StatusCode = StatusCodes.Status401Unauthorized;
         return Task.CompletedTask;
     };
 });
@@ -232,6 +250,7 @@ app.MapAuthEndpoints();
 app.MapPasswordRecoveryEndpoints();
 app.MapChangePasswordEndpoints();
 app.MapSignOutEverywhereEndpoints();
+app.MapTwoFactorEndpoints();
 
 app.Run();
 

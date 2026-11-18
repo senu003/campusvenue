@@ -2,6 +2,7 @@ using System.ComponentModel.DataAnnotations;
 using System.Security.Claims;
 using CampusVenue.Api.Infrastructure.Email;
 using CampusVenue.Api.Modules.Identity.Domain;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
@@ -101,6 +102,33 @@ public static class AuthEndpoints
             // Reset lockout counters upon successful verification
             await userManager.ResetAccessFailedCountAsync(user);
 
+            // If user has two-factor authentication enabled, initiate pending two-factor challenge
+            if (await userManager.GetTwoFactorEnabledAsync(user))
+            {
+                var claims = new List<Claim>
+                {
+                    new(ClaimTypes.Name, user.Id.ToString())
+                };
+                var identity = new ClaimsIdentity(claims, IdentityConstants.TwoFactorUserIdScheme);
+                await context.SignInAsync(
+                    IdentityConstants.TwoFactorUserIdScheme,
+                    new ClaimsPrincipal(identity),
+                    new AuthenticationProperties
+                    {
+                        IsPersistent = request.RememberMe,
+                        ExpiresUtc = DateTimeOffset.UtcNow.AddMinutes(5)
+                    });
+
+                var challengeTokens = antiforgery.GetAndStoreTokens(context);
+                logger.LogInformation("Two-factor authentication challenge initiated for account: {UserId}", user.Id);
+
+                return Results.Ok(new LoginResponse(
+                    "Two-factor verification required",
+                    null,
+                    challengeTokens.RequestToken!,
+                    RequiresTwoFactor: true));
+            }
+
             // Issue same-origin HttpOnly cookie session
             await signInManager.SignInAsync(user, isPersistent: request.RememberMe);
             var principal = await signInManager.CreateUserPrincipalAsync(user);
@@ -125,7 +153,9 @@ public static class AuthEndpoints
         .ProducesProblem(StatusCodes.Status429TooManyRequests);
 
         // 3. Current User Endpoint
-        group.MapGet("/me", (HttpContext context) =>
+        group.MapGet("/me", async (
+            HttpContext context,
+            UserManager<ApplicationUser> userManager) =>
         {
             SetNoCacheHeaders(context);
 
@@ -135,11 +165,13 @@ public static class AuthEndpoints
                 return Results.Unauthorized();
             }
 
-            var email = context.User.FindFirst(ClaimTypes.Email)?.Value
-                ?? context.User.Identity?.Name
-                ?? string.Empty;
+            var user = await userManager.FindByIdAsync(userId.ToString());
+            if (user == null)
+            {
+                return Results.Unauthorized();
+            }
 
-            return Results.Ok(new CurrentUserResponse(userId, email, true));
+            return Results.Ok(new CurrentUserResponse(user.Id, user.Email ?? string.Empty, true, user.TwoFactorEnabled));
         })
         .WithName("GetCurrentUser")
         .WithSummary("Get authenticated user information from active session cookie")
@@ -167,6 +199,7 @@ public static class AuthEndpoints
 
             var userId = context.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
             await signInManager.SignOutAsync();
+            await context.SignOutAsync(IdentityConstants.TwoFactorUserIdScheme);
             context.User = new ClaimsPrincipal(new ClaimsIdentity());
 
             if (!string.IsNullOrEmpty(userId))

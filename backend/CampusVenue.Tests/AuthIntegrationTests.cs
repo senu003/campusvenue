@@ -828,4 +828,68 @@ public class ProductionCookieSecurityTests : IClassFixture<ProductionHttpsWebApp
         var cookieHeader = setCookies!.First(c => c.StartsWith("CampusVenue.Antiforgery"));
         cookieHeader.Should().Contain("secure", Exactly.Once());
     }
+
+    [Fact]
+    public async Task ProductionTwoFactorUserIdCookie_HasHttpOnly_Secure_And_SameSiteLaxAttributes()
+    {
+        // Arrange: Seed user with TwoFactorEnabled = true
+        var email = $"prod_2fa_cookie_{Guid.NewGuid():N}@campus.internal";
+        var password = "SecurePassword123!";
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+            var user = new ApplicationUser
+            {
+                Id = Guid.NewGuid(),
+                UserName = email,
+                Email = email,
+                EmailConfirmed = true,
+                TwoFactorEnabled = true,
+                CreatedAtUtc = DateTime.UtcNow
+            };
+            var createResult = await userManager.CreateAsync(user, password);
+            createResult.Succeeded.Should().BeTrue();
+            await userManager.SetTwoFactorEnabledAsync(user, true);
+        }
+
+        var client = _factory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            BaseAddress = new Uri("https://localhost"),
+            AllowAutoRedirect = false,
+            HandleCookies = false
+        });
+
+        // Retrieve antiforgery token via HTTPS
+        var antiResp = await client.GetAsync("/api/auth/antiforgery");
+        antiResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        var antiData = await antiResp.Content.ReadFromJsonAsync<AntiforgeryTokenResponse>();
+        antiResp.Headers.TryGetValues("Set-Cookie", out var antiCookies).Should().BeTrue();
+        var antiCookieHeader = string.Join("; ", antiCookies!.Select(c => c.Split(';')[0]));
+
+        // Act: Sign in with password to initiate pending 2FA challenge
+        var loginRequest = new HttpRequestMessage(HttpMethod.Post, "/api/auth/login")
+        {
+            Content = JsonContent.Create(new LoginRequest(email, password))
+        };
+        loginRequest.Headers.Add("X-XSRF-TOKEN", antiData!.RequestToken);
+        loginRequest.Headers.Add("Cookie", antiCookieHeader);
+
+        var loginResp = await client.SendAsync(loginRequest);
+        loginResp.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var loginData = await loginResp.Content.ReadFromJsonAsync<LoginResponse>();
+        loginData.Should().NotBeNull();
+        loginData!.RequiresTwoFactor.Should().BeTrue();
+
+        // Assert: Temporary 2FA cookie has HttpOnly, Secure, and SameSite=Lax in Production
+        loginResp.Headers.TryGetValues("Set-Cookie", out var setCookies).Should().BeTrue();
+        var mfaCookie = setCookies!.FirstOrDefault(c => c.StartsWith("CampusVenue.TwoFactorUserId"));
+        mfaCookie.Should().NotBeNull();
+
+        var lowerCookie = mfaCookie!.ToLowerInvariant();
+        lowerCookie.Should().Contain("httponly");
+        lowerCookie.Should().Contain("secure");
+        lowerCookie.Should().Contain("samesite=lax");
+    }
 }

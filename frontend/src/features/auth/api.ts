@@ -3,6 +3,7 @@ import type {
   LoginCredentials,
   RegisterCredentials,
   LoginResponseDto,
+  LoginResult,
   CurrentUserResponseDto,
   LogoutResponseDto,
   AntiforgeryResponseDto,
@@ -16,6 +17,15 @@ import type {
   ChangePasswordResponseDto,
   SignOutEverywhereResponseDto,
   DevEmailDto,
+  TwoFactorStatusDto,
+  TwoFactorSetupDto,
+  EnableTwoFactorRequestDto,
+  EnableTwoFactorResponseDto,
+  DisableTwoFactorRequestDto,
+  DisableTwoFactorResponseDto,
+  RegenerateRecoveryCodesRequestDto,
+  RegenerateRecoveryCodesResponseDto,
+  TwoFactorChallengeRequestDto,
 } from './types';
 
 // In-memory Antiforgery token cache. Never stored in localStorage or sessionStorage.
@@ -68,6 +78,7 @@ export async function getCurrentUser(): Promise<User | null> {
   return {
     id: data.id,
     email: data.email,
+    twoFactorEnabled: data.twoFactorEnabled ?? false,
   };
 }
 
@@ -81,7 +92,7 @@ export class AuthError extends Error {
   }
 }
 
-export async function loginUser(credentials: LoginCredentials): Promise<User> {
+export async function loginUser(credentials: LoginCredentials): Promise<LoginResult> {
   let token = memoryAntiforgeryToken;
   if (!token) {
     token = await fetchAntiforgeryToken();
@@ -138,9 +149,22 @@ export async function loginUser(credentials: LoginCredentials): Promise<User> {
     memoryAntiforgeryToken = data.antiforgeryToken;
   }
 
+  if (data.requiresTwoFactor) {
+    return {
+      success: false,
+      requiresTwoFactor: true,
+      user: null,
+    };
+  }
+
   return {
-    id: data.user.id,
-    email: data.user.email,
+    success: true,
+    requiresTwoFactor: false,
+    user: {
+      id: data.user?.id ?? '',
+      email: data.user?.email ?? '',
+      twoFactorEnabled: false,
+    },
   };
 }
 
@@ -443,4 +467,241 @@ export async function clearDevMailbox(): Promise<void> {
   if (!response.ok) {
     throw new Error(`Failed to clear development mailbox: HTTP ${response.status}`);
   }
+}
+
+export async function verifyTwoFactorChallenge(params: TwoFactorChallengeRequestDto): Promise<User> {
+  let token = memoryAntiforgeryToken;
+  if (!token) {
+    token = await fetchAntiforgeryToken();
+  }
+
+  const response = await fetch('/api/auth/2fa/challenge', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+      'X-XSRF-TOKEN': token,
+    },
+    credentials: 'include',
+    body: JSON.stringify({
+      code: params.code,
+      isRecoveryCode: params.isRecoveryCode ?? false,
+      rememberMe: params.rememberMe ?? false,
+    }),
+  });
+
+  if (response.status === 401) {
+    const errorData = await response.json().catch(() => null);
+    const detail = (errorData && typeof errorData === 'object' && 'detail' in errorData && typeof errorData.detail === 'string')
+      ? errorData.detail
+      : 'Account is temporarily locked out. Please try again later.';
+    throw new AuthError(detail);
+  }
+
+  if (response.status === 429) {
+    throw new AuthError('Too many verification attempts. Please wait a minute before trying again.');
+  }
+
+  if (response.status === 400) {
+    const errorData = await response.json().catch(() => null);
+    const detail = (errorData && typeof errorData === 'object' && 'detail' in errorData && typeof errorData.detail === 'string')
+      ? errorData.detail
+      : 'Invalid verification code.';
+    if (detail.toLowerCase().includes('antiforgery')) {
+      memoryAntiforgeryToken = null;
+    }
+    throw new AuthError(detail);
+  }
+
+  if (!response.ok) {
+    throw new AuthError(`Verification failed: Server returned HTTP ${response.status}`);
+  }
+
+  const data: LoginResponseDto = await response.json();
+  if (data.antiforgeryToken) {
+    memoryAntiforgeryToken = data.antiforgeryToken;
+  }
+
+  return {
+    id: data.user?.id ?? '',
+    email: data.user?.email ?? '',
+    twoFactorEnabled: true,
+  };
+}
+
+export async function getTwoFactorStatus(): Promise<TwoFactorStatusDto> {
+  const response = await fetch('/api/auth/2fa/status', {
+    method: 'GET',
+    headers: {
+      'Accept': 'application/json',
+    },
+    credentials: 'include',
+  });
+
+  if (response.status === 401) {
+    throw new Error('Your session has expired. Please sign in again.');
+  }
+
+  if (!response.ok) {
+    throw new Error(`Failed to check two-factor status: HTTP ${response.status}`);
+  }
+
+  return response.json();
+}
+
+export async function getTwoFactorSetup(): Promise<TwoFactorSetupDto> {
+  const response = await fetch('/api/auth/2fa/setup', {
+    method: 'GET',
+    headers: {
+      'Accept': 'application/json',
+    },
+    credentials: 'include',
+  });
+
+  if (response.status === 401) {
+    throw new Error('Your session has expired. Please sign in again.');
+  }
+
+  if (response.status === 400) {
+    const errorData = await response.json().catch(() => null);
+    const detail = (errorData && typeof errorData === 'object' && 'detail' in errorData && typeof errorData.detail === 'string')
+      ? errorData.detail
+      : 'Two-factor authentication is already enabled.';
+    throw new Error(detail);
+  }
+
+  if (!response.ok) {
+    throw new Error(`Failed to load two-factor setup: HTTP ${response.status}`);
+  }
+
+  return response.json();
+}
+
+export async function enableTwoFactor(params: EnableTwoFactorRequestDto): Promise<EnableTwoFactorResponseDto> {
+  let token = memoryAntiforgeryToken;
+  if (!token) {
+    token = await fetchAntiforgeryToken();
+  }
+
+  const response = await fetch('/api/auth/2fa/enable', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+      'X-XSRF-TOKEN': token,
+    },
+    credentials: 'include',
+    body: JSON.stringify(params),
+  });
+
+  if (response.status === 401) {
+    throw new Error('Your session has expired. Please sign in again.');
+  }
+
+  if (response.status === 429) {
+    throw new Error('Too many requests. Please wait a minute before trying again.');
+  }
+
+  if (response.status === 400) {
+    const errorData = await response.json().catch(() => null);
+    const detail = (errorData && typeof errorData === 'object' && 'detail' in errorData && typeof errorData.detail === 'string')
+      ? errorData.detail
+      : 'Failed to enable two-factor authentication. Please check your password and code.';
+    if (detail.toLowerCase().includes('antiforgery')) {
+      memoryAntiforgeryToken = null;
+    }
+    throw new Error(detail);
+  }
+
+  if (!response.ok) {
+    throw new Error(`Failed to enable two-factor authentication: HTTP ${response.status}`);
+  }
+
+  return response.json();
+}
+
+export async function disableTwoFactor(params: DisableTwoFactorRequestDto): Promise<DisableTwoFactorResponseDto> {
+  let token = memoryAntiforgeryToken;
+  if (!token) {
+    token = await fetchAntiforgeryToken();
+  }
+
+  const response = await fetch('/api/auth/2fa/disable', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+      'X-XSRF-TOKEN': token,
+    },
+    credentials: 'include',
+    body: JSON.stringify(params),
+  });
+
+  if (response.status === 401) {
+    throw new Error('Your session has expired. Please sign in again.');
+  }
+
+  if (response.status === 429) {
+    throw new Error('Too many requests. Please wait a minute before trying again.');
+  }
+
+  if (response.status === 400) {
+    const errorData = await response.json().catch(() => null);
+    const detail = (errorData && typeof errorData === 'object' && 'detail' in errorData && typeof errorData.detail === 'string')
+      ? errorData.detail
+      : 'Failed to disable two-factor authentication. Please check your password and code.';
+    if (detail.toLowerCase().includes('antiforgery')) {
+      memoryAntiforgeryToken = null;
+    }
+    throw new Error(detail);
+  }
+
+  if (!response.ok) {
+    throw new Error(`Failed to disable two-factor authentication: HTTP ${response.status}`);
+  }
+
+  return response.json();
+}
+
+export async function regenerateRecoveryCodes(params: RegenerateRecoveryCodesRequestDto): Promise<RegenerateRecoveryCodesResponseDto> {
+  let token = memoryAntiforgeryToken;
+  if (!token) {
+    token = await fetchAntiforgeryToken();
+  }
+
+  const response = await fetch('/api/auth/2fa/regenerate-recovery-codes', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+      'X-XSRF-TOKEN': token,
+    },
+    credentials: 'include',
+    body: JSON.stringify(params),
+  });
+
+  if (response.status === 401) {
+    throw new Error('Your session has expired. Please sign in again.');
+  }
+
+  if (response.status === 429) {
+    throw new Error('Too many requests. Please wait a minute before trying again.');
+  }
+
+  if (response.status === 400) {
+    const errorData = await response.json().catch(() => null);
+    const detail = (errorData && typeof errorData === 'object' && 'detail' in errorData && typeof errorData.detail === 'string')
+      ? errorData.detail
+      : 'Failed to regenerate recovery codes. Please check your password and code.';
+    if (detail.toLowerCase().includes('antiforgery')) {
+      memoryAntiforgeryToken = null;
+    }
+    throw new Error(detail);
+  }
+
+  if (!response.ok) {
+    throw new Error(`Failed to regenerate recovery codes: HTTP ${response.status}`);
+  }
+
+  return response.json();
 }

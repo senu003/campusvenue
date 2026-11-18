@@ -6,7 +6,10 @@ export interface AuthContextValue {
   isAuthenticated: boolean;
   isLoading: boolean;
   error: string | null;
-  login: (credentials: LoginCredentials) => Promise<boolean>;
+  pendingTwoFactor: boolean;
+  login: (credentials: LoginCredentials) => Promise<{ success: boolean; requiresTwoFactor?: boolean }>;
+  verifyChallenge: (code: string, isRecoveryCode?: boolean, rememberMe?: boolean) => Promise<boolean>;
+  cancelTwoFactorChallenge: () => void;
   logout: () => Promise<void>;
   checkSession: () => Promise<void>;
   clearSession: () => void;

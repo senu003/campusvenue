@@ -12,17 +12,27 @@ describe('App & Authentication Slice Component Tests', () => {
     healthOk?: boolean;
     authenticated?: boolean;
     loginSuccess?: boolean;
+    loginRequiresTwoFactor?: boolean;
     emailUnconfirmed?: boolean;
     changePasswordError?: string;
     signOutEverywhereError?: string;
+    twoFactorEnabled?: boolean;
+    recoveryCodesLeft?: number;
+    enrollError?: string;
+    challengeError?: string;
     mailboxMessages?: Array<{ id: string; to: string; subject: string; bodyHtml: string; sentAtUtc: string }>;
   }) => {
     const {
       healthOk = true,
       authenticated = false,
+      loginRequiresTwoFactor = false,
       emailUnconfirmed = false,
       changePasswordError,
       signOutEverywhereError,
+      twoFactorEnabled = false,
+      recoveryCodesLeft,
+      enrollError,
+      challengeError,
       mailboxMessages = [],
     } = options || {};
 
@@ -76,6 +86,7 @@ describe('App & Authentication Slice Component Tests', () => {
               id: '11111111-2222-3333-4444-555555555555',
               email: 'coordinator@campus.internal',
               isAuthenticated: true,
+              twoFactorEnabled: twoFactorEnabled ?? false,
             }),
           } as Response;
         }
@@ -94,6 +105,19 @@ describe('App & Authentication Slice Component Tests', () => {
             json: async () => ({
               title: 'Email Not Confirmed',
               detail: 'Please confirm your email address before signing in.',
+            }),
+          } as Response;
+        }
+
+        if (loginRequiresTwoFactor) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              message: 'Two-factor verification required',
+              requiresTwoFactor: true,
+              user: null,
+              antiforgeryToken: 'challenge-csrf-token-123',
             }),
           } as Response;
         }
@@ -213,6 +237,123 @@ describe('App & Authentication Slice Component Tests', () => {
           ok: true,
           status: 200,
           json: async () => mailboxMessages,
+        } as Response;
+      }
+
+      if (url.includes('/api/auth/2fa/status')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            isTwoFactorEnabled: twoFactorEnabled,
+            hasAuthenticator: twoFactorEnabled,
+            recoveryCodesLeft: recoveryCodesLeft ?? (twoFactorEnabled ? 10 : 0),
+          }),
+        } as Response;
+      }
+
+      if (url.includes('/api/auth/2fa/setup')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            manualEntryKey: 'abcd efgh ijkl mnop',
+            unformattedKey: 'abcdefghijklmnop',
+            authenticatorUri: 'otpauth://totp/CampusVenue:coordinator@campus.internal?secret=abcdefghijklmnop&issuer=CampusVenue&digits=6',
+            qrCodeSvg: '<svg data-testid="mock-qr-svg"></svg>',
+            qrCodeDataUrl: 'data:image/svg+xml;utf8,<svg></svg>',
+          }),
+        } as Response;
+      }
+
+      if (url.includes('/api/auth/2fa/enable')) {
+        if (enrollError) {
+          return {
+            ok: false,
+            status: 400,
+            json: async () => ({
+              title: 'Validation Error',
+              detail: enrollError,
+            }),
+          } as Response;
+        }
+
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            message: 'Two-factor authentication has been successfully enabled.',
+            recoveryCodes: [
+              '11111-11111',
+              '22222-22222',
+              '33333-33333',
+              '44444-44444',
+              '55555-55555',
+              '66666-66666',
+              '77777-77777',
+              '88888-88888',
+              '99999-99999',
+              '00000-00000',
+            ],
+          }),
+        } as Response;
+      }
+
+      if (url.includes('/api/auth/2fa/disable')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            message: 'Two-factor authentication has been disabled.',
+          }),
+        } as Response;
+      }
+
+      if (url.includes('/api/auth/2fa/regenerate-recovery-codes')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            message: 'New recovery codes generated.',
+            recoveryCodes: [
+              'aaaaa-aaaaa',
+              'bbbbb-bbbbb',
+              'ccccc-ccccc',
+              'ddddd-ddddd',
+              'eeeee-eeeee',
+              'fffff-fffff',
+              'ggggg-ggggg',
+              'hhhhh-hhhhh',
+              'iiiii-iiiii',
+              'jjjjj-jjjjj',
+            ],
+          }),
+        } as Response;
+      }
+
+      if (url.includes('/api/auth/2fa/challenge')) {
+        if (challengeError) {
+          return {
+            ok: false,
+            status: 400,
+            json: async () => ({
+              title: 'Invalid Verification Code',
+              detail: challengeError,
+            }),
+          } as Response;
+        }
+
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            message: 'Sign-in successful',
+            user: {
+              id: '11111111-2222-3333-4444-555555555555',
+              email: 'coordinator@campus.internal',
+            },
+            antiforgeryToken: 'refreshed-after-2fa-token',
+          }),
         } as Response;
       }
 
@@ -769,6 +910,267 @@ describe('App & Authentication Slice Component Tests', () => {
     await waitFor(() => {
       expect(screen.getByTestId('soe-error-banner')).toBeInTheDocument();
       expect(screen.getByText('Database connection failed during stamp rotation.')).toBeInTheDocument();
+    });
+  });
+
+  it('renders Two-Factor section on Account screen with Disabled badge when not enrolled', async () => {
+    setupFetchMock({
+      healthOk: true,
+      authenticated: true,
+      twoFactorEnabled: false,
+    });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByText('My Account')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText('My Account'));
+
+    await waitFor(() => {
+      expect(screen.getByText('Two-Factor Authentication')).toBeInTheDocument();
+      expect(screen.getByTestId('mfa-status-badge')).toHaveTextContent('Disabled');
+      expect(screen.getByTestId('open-enable-2fa-btn')).toBeInTheDocument();
+    });
+  });
+
+  it('completes Two-Factor enrollment flow, shows local QR code and setup key, and displays 10 recovery codes', async () => {
+    setupFetchMock({
+      healthOk: true,
+      authenticated: true,
+      twoFactorEnabled: false,
+    });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByText('My Account')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText('My Account'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('open-enable-2fa-btn')).toBeInTheDocument();
+    });
+
+    // Open enrollment modal
+    fireEvent.click(screen.getByTestId('open-enable-2fa-btn'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('mfa-qr-code')).toBeInTheDocument();
+      expect(screen.getByTestId('mfa-manual-key')).toHaveTextContent('abcd efgh ijkl mnop');
+      expect(screen.getByTestId('mfa-current-password-input')).toBeInTheDocument();
+      expect(screen.getByTestId('mfa-enroll-code-input')).toBeInTheDocument();
+    });
+
+    // Enter credentials and code
+    fireEvent.change(screen.getByTestId('mfa-current-password-input'), {
+      target: { value: 'CurrentPassword123!' },
+    });
+    fireEvent.change(screen.getByTestId('mfa-enroll-code-input'), {
+      target: { value: '123456' },
+    });
+
+    // Submit enrollment
+    fireEvent.click(screen.getByTestId('submit-enable-2fa-btn'));
+
+    // Should display recovery codes modal with 10 codes
+    await waitFor(() => {
+      expect(screen.getByText('Save Your Recovery Codes')).toBeInTheDocument();
+      expect(screen.getByTestId('recovery-codes-list')).toBeInTheDocument();
+      expect(screen.getByText('11111-11111')).toBeInTheDocument();
+      expect(screen.getByTestId('copy-recovery-codes-btn')).toBeInTheDocument();
+      expect(screen.getByTestId('confirm-saved-recovery-codes-btn')).toBeInTheDocument();
+    });
+
+    // Confirm saved recovery codes to dismiss
+    fireEvent.click(screen.getByTestId('confirm-saved-recovery-codes-btn'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('mfa-success-banner')).toBeInTheDocument();
+      expect(screen.getByText(/Two-Factor Authentication is now enabled/i)).toBeInTheDocument();
+    });
+  });
+
+  it('renders Two-Factor section as Active with recovery codes count when enabled', async () => {
+    setupFetchMock({
+      healthOk: true,
+      authenticated: true,
+      twoFactorEnabled: true,
+      recoveryCodesLeft: 8,
+    });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByText('My Account')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText('My Account'));
+
+    await waitFor(() => {
+      expect(screen.getByText('Two-Factor Authentication')).toBeInTheDocument();
+      expect(screen.getByTestId('mfa-status-badge')).toHaveTextContent('Active');
+      expect(screen.getByText(/You have 8 recovery codes remaining/i)).toBeInTheDocument();
+      expect(screen.getByTestId('open-regenerate-codes-btn')).toBeInTheDocument();
+      expect(screen.getByTestId('open-disable-2fa-btn')).toBeInTheDocument();
+    });
+  });
+
+  it('regenerates recovery codes from Account screen with password and code verification', async () => {
+    setupFetchMock({
+      healthOk: true,
+      authenticated: true,
+      twoFactorEnabled: true,
+      recoveryCodesLeft: 5,
+    });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByText('My Account')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText('My Account'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('open-regenerate-codes-btn')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTestId('open-regenerate-codes-btn'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('regen-current-password-input')).toBeInTheDocument();
+      expect(screen.getByTestId('regen-code-input')).toBeInTheDocument();
+    });
+
+    fireEvent.change(screen.getByTestId('regen-current-password-input'), {
+      target: { value: 'CurrentPassword123!' },
+    });
+    fireEvent.change(screen.getByTestId('regen-code-input'), {
+      target: { value: '654321' },
+    });
+
+    fireEvent.click(screen.getByTestId('submit-regen-codes-btn'));
+
+    await waitFor(() => {
+      expect(screen.getByText('Save Your Recovery Codes')).toBeInTheDocument();
+      expect(screen.getByText('aaaaa-aaaaa')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTestId('confirm-saved-recovery-codes-btn'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('mfa-success-banner')).toBeInTheDocument();
+      expect(screen.getByText(/New recovery codes generated/i)).toBeInTheDocument();
+    });
+  });
+
+  it('disables Two-Factor authentication from Account screen with password and code verification', async () => {
+    setupFetchMock({
+      healthOk: true,
+      authenticated: true,
+      twoFactorEnabled: true,
+      recoveryCodesLeft: 10,
+    });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByText('My Account')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText('My Account'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('open-disable-2fa-btn')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTestId('open-disable-2fa-btn'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('disable-current-password-input')).toBeInTheDocument();
+      expect(screen.getByTestId('disable-code-input')).toBeInTheDocument();
+    });
+
+    fireEvent.change(screen.getByTestId('disable-current-password-input'), {
+      target: { value: 'CurrentPassword123!' },
+    });
+    fireEvent.change(screen.getByTestId('disable-code-input'), {
+      target: { value: '654321' },
+    });
+
+    fireEvent.click(screen.getByTestId('submit-disable-2fa-btn'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('mfa-success-banner')).toBeInTheDocument();
+      expect(screen.getByText(/Two-Factor Authentication has been disabled/i)).toBeInTheDocument();
+    });
+  });
+
+  it('handles MFA challenge during sign-in, supports toggle to recovery code, and signs in on valid code', async () => {
+    setupFetchMock({
+      healthOk: true,
+      authenticated: false,
+      loginRequiresTwoFactor: true,
+    });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('nav-auth-tab')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTestId('nav-auth-tab'));
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/university email/i)).toBeInTheDocument();
+    });
+
+    // Enter credentials
+    fireEvent.change(screen.getByLabelText(/university email/i), {
+      target: { value: 'mfa.user@campus.internal' },
+    });
+    fireEvent.change(screen.getByLabelText(/^password/i), {
+      target: { value: 'Password123!' },
+    });
+
+    fireEvent.click(screen.getByTestId('login-submit-btn'));
+
+    // Should switch to Two-Factor challenge screen
+    await waitFor(() => {
+      expect(screen.getByText('Two-Factor Authentication')).toBeInTheDocument();
+      expect(screen.getByTestId('mfa-code-input')).toBeInTheDocument();
+      expect(screen.getByTestId('switch-to-recovery-code-btn')).toBeInTheDocument();
+    });
+
+    // Switch to recovery code mode
+    fireEvent.click(screen.getByTestId('switch-to-recovery-code-btn'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('recovery-code-input')).toBeInTheDocument();
+      expect(screen.getByTestId('switch-to-authenticator-btn')).toBeInTheDocument();
+    });
+
+    // Switch back to authenticator mode
+    fireEvent.click(screen.getByTestId('switch-to-authenticator-btn'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('mfa-code-input')).toBeInTheDocument();
+    });
+
+    // Enter verification code and submit
+    fireEvent.change(screen.getByTestId('mfa-code-input'), {
+      target: { value: '123456' },
+    });
+
+    fireEvent.click(screen.getByTestId('submit-mfa-challenge-btn'));
+
+    // Should successfully authenticate and navigate to Account screen
+    await waitFor(() => {
+      expect(screen.getAllByText('coordinator@campus.internal').length).toBeGreaterThan(0);
+      expect(screen.getAllByRole('button', { name: /Sign Out/i }).length).toBeGreaterThan(0);
     });
   });
 });

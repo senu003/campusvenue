@@ -1,6 +1,7 @@
 export interface User {
   id: string;
   email: string;
+  twoFactorEnabled?: boolean;
 }
 
 export interface LoginCredentials {
@@ -22,14 +23,16 @@ export interface UserDto {
 
 export interface LoginResponseDto {
   message: string;
-  user: UserDto;
+  user?: UserDto | null;
   antiforgeryToken: string;
+  requiresTwoFactor?: boolean;
 }
 
 export interface CurrentUserResponseDto {
   id: string;
   email: string;
   isAuthenticated: boolean;
+  twoFactorEnabled?: boolean;
 }
 
 export interface LogoutResponseDto {
@@ -96,4 +99,59 @@ export interface DevEmailDto {
   subject: string;
   bodyHtml: string;
   sentAtUtc: string;
+}
+
+export interface TwoFactorStatusDto {
+  isTwoFactorEnabled: boolean;
+  hasAuthenticator: boolean;
+  recoveryCodesLeft: number;
+}
+
+export interface TwoFactorSetupDto {
+  manualEntryKey: string;
+  unformattedKey: string;
+  authenticatorUri: string;
+  qrCodeSvg: string;
+  qrCodeDataUrl: string;
+}
+
+export interface EnableTwoFactorRequestDto {
+  currentPassword: string;
+  code: string;
+}
+
+export interface EnableTwoFactorResponseDto {
+  message: string;
+  recoveryCodes: string[];
+}
+
+export interface DisableTwoFactorRequestDto {
+  currentPassword: string;
+  code: string;
+}
+
+export interface DisableTwoFactorResponseDto {
+  message: string;
+}
+
+export interface RegenerateRecoveryCodesRequestDto {
+  currentPassword: string;
+  code: string;
+}
+
+export interface RegenerateRecoveryCodesResponseDto {
+  message: string;
+  recoveryCodes: string[];
+}
+
+export interface TwoFactorChallengeRequestDto {
+  code: string;
+  isRecoveryCode?: boolean;
+  rememberMe?: boolean;
+}
+
+export interface LoginResult {
+  success: boolean;
+  requiresTwoFactor?: boolean;
+  user?: User | null;
 }

@@ -11,7 +11,10 @@ This document defines the complete multi-phase roadmap for CampusVenue, from Pha
 | **Phase 0** | **Enterprise Foundation & Architecture** | **Completed & Verified** | Repository setup, 16 governance rules, .NET 10 LTS, dockerized PG, CI pipeline, health endpoints, minimal frontend shell |
 | **Phase 1A.1** | **Secure Sign-In & Sign-Out (Auth Core)** | **Completed & Verified** | ASP.NET Identity, secure HttpOnly cookie auth, CSRF protection, lockout, session state, React login & account screen |
 | **Phase 1A.2** | **User Registration & Email Verification** | **Completed & Verified** | Self-service sign-up, password policy, local in-memory mailbox (`/dev/mailbox`), email confirmation, unconfirmed account login defense |
-| **Phase 1A.3** | Password Recovery & Reset | *Planned* | Secure password reset requests, reset tokens, and recovery workflow |
+| **Phase 1A.3** | **Password Recovery & Reset** | **Completed & Verified** | Secure password reset requests, reset tokens, uniform anti-enumeration responses, and security stamp session invalidation |
+| **Phase 1A.4** | **Signed-In Password Change** | **Completed & Verified** | Authenticated password change in My Account, current password verification, session revocation, and security stamp invalidation |
+| **Phase 1A.5** | **Sign Out Everywhere** | **Completed & Verified** | Revoke all active sessions via SecurityStamp rotation, immediate local termination, and delayed remote rejection |
+| **Phase 1A.6** | **Authenticator MFA & Recovery Codes** | **Completed & Verified** | TOTP authenticator enrollment, local SVG QR codes, 10 single-use recovery codes, short-lived 2FA challenge flow, secure regenerate/disable |
 | **Phase 1B** | Roles & Authorization Policies (RBAC) | *Planned* | System roles (`UniversityAdmin`, `FacilityAdmin`, `Coordinator`, `Participant`), permission policies, access control |
 | **Phase 1C** | University Organizations & Tenancy | *Planned* | Faculties, departments, student societies, coordinator membership assignment, organizational scoping |
 | **Phase 2** | Buildings & Reservable Spaces | *Planned* | Space catalog, capacities, audio-visual equipment, accessibility tags, photo galleries |
@@ -124,6 +127,23 @@ This document defines the complete multi-phase roadmap for CampusVenue, from Pha
     - User can immediately re-authenticate with their existing password.
   - **Frontend**: "Sign Out Everywhere" card in `AccountScreen` with accessible confirmation dialog detailing the 5-minute remote rejection window, loading state, error banner, and redirection to Sign In with a success confirmation banner.
   - **Tests**: 55 backend integration tests in `CampusVenue.Tests` (5 dedicated SignOutEverywhere integration tests covering unauthenticated rejection, missing CSRF rejection, immediate local browser sign-out, delayed remote session rejection, and same-password re-login), 18 frontend Vitest tests.
+
+#### Phase 1A.6: Authenticator MFA and Recovery Codes (Completed & Verified)
+- **Business Objective**: Enable users to enroll an authenticator app (TOTP) from My Account, present a locally generated vector QR code, supply 10 single-use recovery codes, require a short-lived 2FA challenge upon sign-in, and allow secure recovery code regeneration or MFA disabling.
+- **Vertical Slice Scope**:
+  - **Backend**: Minimal API endpoints (`/api/auth/2fa/status`, `/api/auth/2fa/setup`, `/api/auth/2fa/enable`, `/api/auth/2fa/disable`, `/api/auth/2fa/regenerate-recovery-codes`, `/api/auth/2fa/challenge`) under `Modules/Identity/Features/TwoFactor`.
+  - **Security Invariants**:
+    - 100% local, offline vector QR code SVG generation via `QRCoder` 1.8.1; zero external network requests or third-party chart APIs.
+    - User account derived strictly from server-side claims (`ClaimTypes.NameIdentifier`) with zero client trust.
+    - Valid password for MFA-enabled account issues temporary 5-minute cookie (`CampusVenue.TwoFactorUserId`) under `IdentityConstants.TwoFactorUserIdScheme`.
+    - Protected endpoints (`/api/auth/me`) strictly return 401 Unauthorized while MFA is pending.
+    - Full session cookie (`CampusVenue.Auth`) issued only upon valid 6-digit TOTP code or valid single-use recovery code.
+    - Single-use recovery codes immediately invalidated upon redemption; reused codes return 400 Bad Request.
+    - Failed 2FA attempts increment account lockout counters and are subject to rate limiting (`AuthLimiter`) and anti-CSRF token verification (`X-XSRF-TOKEN`).
+    - Regenerating codes or disabling MFA requires re-verifying current password plus an active second factor.
+    - Password reset leaves MFA enabled and active.
+  - **Frontend**: My Account Two-Factor card, enrollment modal with local QR code and formatted setup key, 10 recovery codes display modal, Sign In form 2FA challenge mode (with TOTP / recovery code toggle), regeneration modal, and disable modal in `src/features/auth`.
+  - **Tests**: 75 backend integration tests (20 dedicated TwoFactor tests), 24 frontend Vitest tests.
 
 #### Phase 1B: Roles & Authorization Policies (RBAC)
 - **Business Objective**: Implement institutional role hierarchies (`UniversityAdmin`, `FacilityAdmin`, `EventCoordinator`, `Participant`) and server-side policy enforcement.

@@ -73,6 +73,7 @@ Phases 1-13 — Business Features:  [                    ] 0%   (Planned)
 | **Password Recovery & Reset** | :white_check_mark: **Implemented & Verified** | Phase 1A.3 | Secure self-service password reset requests, expiring reset tokens, uniform anti-enumeration responses, and security stamp session invalidation. |
 | **Signed-In Password Change** | :white_check_mark: **Implemented & Verified** | Phase 1A.4 | Authenticated password change in My Account, current password verification, session revocation, and security stamp invalidation. |
 | **Sign Out Everywhere** | :white_check_mark: **Implemented & Verified** | Phase 1A.5 | Revoke all active sessions via SecurityStamp rotation, immediate local termination, and delayed remote rejection. |
+| **Authenticator MFA & Recovery Codes** | :white_check_mark: **Implemented & Verified** | Phase 1A.6 | TOTP authenticator enrollment, local SVG QR code generation, 10 single-use recovery codes, short-lived 2FA challenge flow, secure regenerate/disable. |
 | **Roles & Authorization Policies** | :hourglass: *Planned* | Phase 1B | RBAC claims (`UniversityAdmin`, `FacilityAdmin`, `Coordinator`, `Participant`). |
 | **University Organizations & Tenancy** | :hourglass: *Planned* | Phase 1C | Faculties, academic departments, student societies, coordinator assignment scoping. |
 | **Buildings & Space Inventory** | :hourglass: *Planned* | Phase 2 | Space catalog, equipment metadata, accessibility tags, photo galleries. |
