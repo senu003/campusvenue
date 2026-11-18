@@ -14,6 +14,7 @@ describe('App & Authentication Slice Component Tests', () => {
     loginSuccess?: boolean;
     emailUnconfirmed?: boolean;
     changePasswordError?: string;
+    signOutEverywhereError?: string;
     mailboxMessages?: Array<{ id: string; to: string; subject: string; bodyHtml: string; sentAtUtc: string }>;
   }) => {
     const {
@@ -21,6 +22,7 @@ describe('App & Authentication Slice Component Tests', () => {
       authenticated = false,
       emailUnconfirmed = false,
       changePasswordError,
+      signOutEverywhereError,
       mailboxMessages = [],
     } = options || {};
 
@@ -171,6 +173,28 @@ describe('App & Authentication Slice Component Tests', () => {
           status: 200,
           json: async () => ({
             message: 'Password changed successfully. Please sign in with your new password.',
+            antiforgeryToken: 'anonymous-token-999',
+          }),
+        } as Response;
+      }
+
+      if (url.includes('/api/auth/sign-out-everywhere')) {
+        if (signOutEverywhereError) {
+          return {
+            ok: false,
+            status: 400,
+            json: async () => ({
+              title: 'Session Revocation Failed',
+              detail: signOutEverywhereError,
+            }),
+          } as Response;
+        }
+
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            message: 'You have been signed out from all devices successfully.',
             antiforgeryToken: 'anonymous-token-999',
           }),
         } as Response;
@@ -644,6 +668,107 @@ describe('App & Authentication Slice Component Tests', () => {
     await waitFor(() => {
       expect(screen.getByTestId('change-password-error-banner')).toBeInTheDocument();
       expect(screen.getByText('The current password provided is incorrect.')).toBeInTheDocument();
+    });
+  });
+
+  it('navigates to Account screen, opens Sign out everywhere dialog, and cancels without signing out', async () => {
+    setupFetchMock({ healthOk: true, authenticated: true });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByText('My Account')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText('My Account'));
+
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: 'Sign Out Everywhere' })).toBeInTheDocument();
+      expect(screen.getByTestId('open-sign-out-everywhere-btn')).toBeInTheDocument();
+    });
+
+    // Open confirmation dialog
+    fireEvent.click(screen.getByTestId('open-sign-out-everywhere-btn'));
+
+    await waitFor(() => {
+      expect(screen.getByText('Sign out from all devices?')).toBeInTheDocument();
+      expect(screen.getByText(/Other active sessions may take up to 5 minutes to be rejected/i)).toBeInTheDocument();
+      expect(screen.getByTestId('confirm-sign-out-everywhere-btn')).toBeInTheDocument();
+      expect(screen.getByTestId('cancel-sign-out-everywhere-btn')).toBeInTheDocument();
+    });
+
+    // Click cancel
+    fireEvent.click(screen.getByTestId('cancel-sign-out-everywhere-btn'));
+
+    await waitFor(() => {
+      expect(screen.queryByText('Sign out from all devices?')).not.toBeInTheDocument();
+      expect(screen.getAllByText('coordinator@campus.internal').length).toBeGreaterThanOrEqual(1);
+    });
+  });
+
+  it('confirms Sign out everywhere, terminates session, redirects to Sign In, and shows confirmation banner', async () => {
+    setupFetchMock({ healthOk: true, authenticated: true });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByText('My Account')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText('My Account'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('open-sign-out-everywhere-btn')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTestId('open-sign-out-everywhere-btn'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('confirm-sign-out-everywhere-btn')).toBeInTheDocument();
+    });
+
+    // Confirm sign out everywhere
+    fireEvent.click(screen.getByTestId('confirm-sign-out-everywhere-btn'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('login-success-banner')).toBeInTheDocument();
+      expect(screen.getByText('Signed out on this device')).toBeInTheDocument();
+      expect(screen.getByText(/You have been signed out from all devices successfully./i)).toBeInTheDocument();
+      expect(screen.getByText(/Other devices may continue to have access for up to five minutes/i)).toBeInTheDocument();
+      expect(screen.getByText('Sign in to CampusVenue')).toBeInTheDocument();
+    });
+  });
+
+  it('displays error banner when Sign out everywhere fails', async () => {
+    setupFetchMock({
+      healthOk: true,
+      authenticated: true,
+      signOutEverywhereError: 'Database connection failed during stamp rotation.',
+    });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByText('My Account')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText('My Account'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('open-sign-out-everywhere-btn')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTestId('open-sign-out-everywhere-btn'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('confirm-sign-out-everywhere-btn')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTestId('confirm-sign-out-everywhere-btn'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('soe-error-banner')).toBeInTheDocument();
+      expect(screen.getByText('Database connection failed during stamp rotation.')).toBeInTheDocument();
     });
   });
 });

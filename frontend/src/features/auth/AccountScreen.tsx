@@ -1,17 +1,25 @@
 import React, { useState } from 'react';
-import { ShieldCheck, LogOut, RefreshCw, KeyRound, CheckCircle2, Clock, Lock } from 'lucide-react';
+import { ShieldCheck, LogOut, RefreshCw, KeyRound, CheckCircle2, Clock, Lock, AlertCircle, Loader2 } from 'lucide-react';
 import { useAuth } from './useAuth';
 import { ChangePasswordForm } from './ChangePasswordForm';
+import { signOutEverywhere } from './api';
 
 interface AccountScreenProps {
   onPasswordChanged?: (message: string) => void;
+  onSignedOutEverywhere?: (message: string) => void;
 }
 
-export const AccountScreen: React.FC<AccountScreenProps> = ({ onPasswordChanged }) => {
+export const AccountScreen: React.FC<AccountScreenProps> = ({
+  onPasswordChanged,
+  onSignedOutEverywhere,
+}) => {
   const { user, logout, checkSession, clearSession, isLoading } = useAuth();
   const [refreshing, setRefreshing] = useState(false);
   const [lastVerified, setLastVerified] = useState<Date>(new Date());
   const [showChangePassword, setShowChangePassword] = useState<boolean>(false);
+  const [showSignOutEverywhereDialog, setShowSignOutEverywhereDialog] = useState<boolean>(false);
+  const [isSigningOutEverywhere, setIsSigningOutEverywhere] = useState<boolean>(false);
+  const [signOutEverywhereError, setSignOutEverywhereError] = useState<string | null>(null);
 
   if (!user) {
     return null;
@@ -22,6 +30,22 @@ export const AccountScreen: React.FC<AccountScreenProps> = ({ onPasswordChanged 
     await checkSession();
     setLastVerified(new Date());
     setRefreshing(false);
+  };
+
+  const handleSignOutEverywhere = async () => {
+    setIsSigningOutEverywhere(true);
+    setSignOutEverywhereError(null);
+    try {
+      const response = await signOutEverywhere();
+      clearSession();
+      setShowSignOutEverywhereDialog(false);
+      onSignedOutEverywhere?.(response.message || 'You have been signed out from all devices successfully.');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to sign out from all devices.';
+      setSignOutEverywhereError(msg);
+    } finally {
+      setIsSigningOutEverywhere(false);
+    }
   };
 
   return (
@@ -130,6 +154,101 @@ export const AccountScreen: React.FC<AccountScreenProps> = ({ onPasswordChanged 
             <KeyRound className="w-4 h-4 text-slate-500" />
             <span>Change Password</span>
           </button>
+        </div>
+      )}
+
+      {/* Sign Out Everywhere Section */}
+      <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="flex items-center space-x-3.5">
+          <div className="w-10 h-10 rounded-xl bg-rose-50 text-rose-700 flex items-center justify-center border border-rose-100">
+            <LogOut className="w-5 h-5 text-rose-600" />
+          </div>
+          <div>
+            <h3 className="text-sm font-bold text-slate-900">Sign Out Everywhere</h3>
+            <p className="text-xs text-slate-500">
+              Revoke all active sessions on other browsers and devices.
+            </p>
+          </div>
+        </div>
+        <button
+          type="button"
+          data-testid="open-sign-out-everywhere-btn"
+          onClick={() => setShowSignOutEverywhereDialog(true)}
+          className="inline-flex items-center justify-center space-x-2 px-4 py-2 text-xs font-semibold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-lg transition cursor-pointer"
+        >
+          <LogOut className="w-4 h-4 text-rose-600" />
+          <span>Sign Out Everywhere</span>
+        </button>
+      </div>
+
+      {/* Confirmation Dialog for Sign Out Everywhere */}
+      {showSignOutEverywhereDialog && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="soe-dialog-title"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs animate-in fade-in"
+        >
+          <div className="bg-white border border-slate-200 rounded-2xl p-6 sm:p-8 max-w-md w-full shadow-xl space-y-4">
+            <div className="flex items-start space-x-3.5">
+              <div className="w-10 h-10 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center shrink-0">
+                <AlertCircle className="w-5 h-5 text-amber-600" />
+              </div>
+              <div className="space-y-1">
+                <h3 id="soe-dialog-title" className="text-base font-bold text-slate-900">
+                  Sign out from all devices?
+                </h3>
+                <p className="text-xs text-slate-600 leading-relaxed">
+                  This action will immediately terminate your session on this device and invalidate all other active sessions across any browsers or mobile devices.
+                </p>
+                <p className="text-xs text-amber-800 bg-amber-50 p-2.5 rounded-lg border border-amber-200 mt-2 font-medium">
+                  Note: Other active sessions may take up to 5 minutes to be rejected on their next request.
+                </p>
+              </div>
+            </div>
+
+            {signOutEverywhereError && (
+              <div
+                role="alert"
+                data-testid="soe-error-banner"
+                className="flex items-start space-x-2.5 p-3 rounded-lg bg-rose-50 border border-rose-200 text-rose-800 text-xs"
+              >
+                <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                <div className="flex-1 font-medium">{signOutEverywhereError}</div>
+              </div>
+            )}
+
+            <div className="flex flex-col-reverse sm:flex-row items-center justify-end gap-2.5 pt-3 border-t border-slate-100">
+              <button
+                type="button"
+                data-testid="cancel-sign-out-everywhere-btn"
+                disabled={isSigningOutEverywhere}
+                onClick={() => {
+                  setShowSignOutEverywhereDialog(false);
+                  setSignOutEverywhereError(null);
+                }}
+                className="w-full sm:w-auto px-4 py-2 text-xs font-semibold text-slate-700 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-lg transition disabled:opacity-50 cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                data-testid="confirm-sign-out-everywhere-btn"
+                disabled={isSigningOutEverywhere}
+                onClick={handleSignOutEverywhere}
+                className="w-full sm:w-auto inline-flex items-center justify-center space-x-1.5 px-4 py-2 text-xs font-semibold text-white bg-rose-600 hover:bg-rose-700 rounded-lg shadow-sm transition disabled:opacity-50 cursor-pointer"
+              >
+                {isSigningOutEverywhere ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Signing out everywhere...</span>
+                  </>
+                ) : (
+                  <span>Yes, Sign Out Everywhere</span>
+                )}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

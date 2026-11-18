@@ -377,6 +377,11 @@ const CampusVenueContent: React.FC = () => {
                   setAuthSubView('login');
                   setActiveTab('auth');
                 }}
+                onSignedOutEverywhere={(msg) => {
+                  setLoginSuccessMessage(msg);
+                  setAuthSubView('login');
+                  setActiveTab('auth');
+                }}
               />
             ) : authSubView === 'verify' ? (
               <EmailVerificationScreen

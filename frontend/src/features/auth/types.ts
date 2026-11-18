@@ -85,6 +85,11 @@ export interface ChangePasswordResponseDto {
   antiforgeryToken?: string;
 }
 
+export interface SignOutEverywhereResponseDto {
+  message: string;
+  antiforgeryToken?: string;
+}
+
 export interface DevEmailDto {
   id: string;
   to: string;

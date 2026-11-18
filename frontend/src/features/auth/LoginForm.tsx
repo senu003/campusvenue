@@ -78,9 +78,18 @@ export const LoginForm: React.FC<LoginFormProps> = ({
           <CheckCircle2 className="w-5 h-5 text-emerald-600 flex-shrink-0 mt-0.5" />
           <div className="text-xs leading-relaxed flex-1">
             <span className="font-semibold block">
-              {successMessage.toLowerCase().includes('change') ? 'Password Changed Successfully' : 'Password Reset Completed'}
+              {successMessage.toLowerCase().includes('change')
+                ? 'Password Changed Successfully'
+                : (successMessage.toLowerCase().includes('everywhere') || successMessage.toLowerCase().includes('device'))
+                ? 'Signed out on this device'
+                : 'Password Reset Completed'}
             </span>
             <span>{successMessage}</span>
+            {(successMessage.toLowerCase().includes('everywhere') || successMessage.toLowerCase().includes('device')) && (
+              <span className="block mt-1 text-emerald-800">
+                Other devices may continue to have access for up to five minutes.
+              </span>
+            )}
           </div>
         </div>
       )}

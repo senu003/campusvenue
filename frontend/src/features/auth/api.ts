@@ -14,6 +14,7 @@ import type {
   ResetPasswordResponseDto,
   ChangePasswordCredentials,
   ChangePasswordResponseDto,
+  SignOutEverywhereResponseDto,
   DevEmailDto,
 } from './types';
 
@@ -381,6 +382,52 @@ export async function changePassword(credentials: ChangePasswordCredentials): Pr
   }
 
   const data: ChangePasswordResponseDto = await response.json();
+  if (data.antiforgeryToken) {
+    memoryAntiforgeryToken = data.antiforgeryToken;
+  }
+
+  return data;
+}
+
+export async function signOutEverywhere(): Promise<SignOutEverywhereResponseDto> {
+  let token = memoryAntiforgeryToken;
+  if (!token) {
+    token = await fetchAntiforgeryToken();
+  }
+
+  const response = await fetch('/api/auth/sign-out-everywhere', {
+    method: 'POST',
+    headers: {
+      'Accept': 'application/json',
+      'X-XSRF-TOKEN': token,
+    },
+    credentials: 'include',
+  });
+
+  if (response.status === 401) {
+    throw new Error('Your session has expired or is unauthorized. Please sign in again.');
+  }
+
+  if (response.status === 429) {
+    throw new Error('Too many session revocation requests. Please wait a minute before trying again.');
+  }
+
+  if (response.status === 400) {
+    const errorData = await response.json().catch(() => null);
+    const detail = (errorData && typeof errorData === 'object' && 'detail' in errorData && typeof errorData.detail === 'string')
+      ? errorData.detail
+      : 'Session revocation request validation failed.';
+    if (detail.toLowerCase().includes('antiforgery')) {
+      memoryAntiforgeryToken = null;
+    }
+    throw new Error(detail);
+  }
+
+  if (!response.ok) {
+    throw new Error(`Failed to sign out from all devices: Server returned HTTP ${response.status}`);
+  }
+
+  const data: SignOutEverywhereResponseDto = await response.json();
   if (data.antiforgeryToken) {
     memoryAntiforgeryToken = data.antiforgeryToken;
   }

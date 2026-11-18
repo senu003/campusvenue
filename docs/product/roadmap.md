@@ -110,6 +110,21 @@ This document defines the complete multi-phase roadmap for CampusVenue, from Pha
   - **Frontend**: `ChangePasswordForm` in My Account (`AccountScreen.tsx`) with real-time requirements checklist, password visibility toggles, clear error states, and automatic redirection to Sign In with a success confirmation banner.
   - **Tests**: 50 backend integration tests (7 dedicated ChangePassword tests covering 401 unauthorized, 400 bad CSRF, wrong current password, weak new password, mismatched confirmation, successful password change with session termination, and remote session rejection), 15 frontend Vitest tests.
 
+#### Phase 1A.5: Sign Out Everywhere (Completed & Verified)
+- **Business Objective**: Enable authenticated users to invalidate all active sessions across all devices from My Account using security stamp rotation, terminating the current session immediately and revoking all other sessions within the validation interval.
+- **Vertical Slice Scope**:
+  - **Backend**: `POST /api/auth/sign-out-everywhere` under `Modules/Identity/Features/SignOutEverywhere`.
+  - **Security Invariants**:
+    - Requires active authenticated session (`.RequireAuthorization()`); user account is derived strictly from server-side claims (`ClaimTypes.NameIdentifier`).
+    - Validates anti-CSRF request token (`X-XSRF-TOKEN`).
+    - Invokes `UserManager.UpdateSecurityStampAsync` to rotate `user.SecurityStamp` in PostgreSQL.
+    - Leaves current session intact and returns RFC 7807 problem details if security stamp update fails.
+    - On success, terminates current session via `SignInManager.SignOutAsync()`, clears auth cookie, and issues a fresh anonymous antiforgery token.
+    - Existing sessions on other browsers or devices are invalidated and rejected by `SecurityStampValidator` once the validation interval elapses.
+    - User can immediately re-authenticate with their existing password.
+  - **Frontend**: "Sign Out Everywhere" card in `AccountScreen` with accessible confirmation dialog detailing the 5-minute remote rejection window, loading state, error banner, and redirection to Sign In with a success confirmation banner.
+  - **Tests**: 55 backend integration tests in `CampusVenue.Tests` (5 dedicated SignOutEverywhere integration tests covering unauthenticated rejection, missing CSRF rejection, immediate local browser sign-out, delayed remote session rejection, and same-password re-login), 18 frontend Vitest tests.
+
 #### Phase 1B: Roles & Authorization Policies (RBAC)
 - **Business Objective**: Implement institutional role hierarchies (`UniversityAdmin`, `FacilityAdmin`, `EventCoordinator`, `Participant`) and server-side policy enforcement.
 - **Vertical Slice Scope**:
