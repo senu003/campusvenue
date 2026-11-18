@@ -1,19 +1,23 @@
 import React, { useState } from 'react';
-import { LogIn, Lock, Mail, AlertCircle, Eye, EyeOff, Loader2, MailWarning } from 'lucide-react';
+import { LogIn, Lock, Mail, AlertCircle, Eye, EyeOff, Loader2, MailWarning, CheckCircle2 } from 'lucide-react';
 import { useAuth } from './useAuth';
 
 interface LoginFormProps {
   onSuccess?: () => void;
   onNavigateToRegister?: () => void;
+  onNavigateToForgotPassword?: () => void;
   initialEmail?: string;
   onNavigateToMailbox?: () => void;
+  successMessage?: string | null;
 }
 
 export const LoginForm: React.FC<LoginFormProps> = ({
   onSuccess,
   onNavigateToRegister,
+  onNavigateToForgotPassword,
   initialEmail = '',
   onNavigateToMailbox,
+  successMessage,
 }) => {
   const { login, isLoading, error, clearError } = useAuth();
   const [email, setEmail] = useState(initialEmail);
@@ -63,6 +67,21 @@ export const LoginForm: React.FC<LoginFormProps> = ({
           Enter your university credentials to access the venue management portal.
         </p>
       </div>
+
+      {successMessage && (
+        <div
+          role="status"
+          aria-live="polite"
+          data-testid="login-success-banner"
+          className="mb-5 rounded-xl p-4 flex items-start space-x-3 bg-emerald-50 border border-emerald-200 text-emerald-900 animate-in fade-in"
+        >
+          <CheckCircle2 className="w-5 h-5 text-emerald-600 flex-shrink-0 mt-0.5" />
+          <div className="text-xs leading-relaxed flex-1">
+            <span className="font-semibold block">Password Reset Completed</span>
+            <span>{successMessage}</span>
+          </div>
+        </div>
+      )}
 
       {displayError && (
         <div
@@ -133,6 +152,16 @@ export const LoginForm: React.FC<LoginFormProps> = ({
             <label htmlFor="login-password" className="block text-xs font-semibold text-slate-700 uppercase tracking-wider">
               Password
             </label>
+            {onNavigateToForgotPassword && (
+              <button
+                type="button"
+                data-testid="forgot-password-link"
+                onClick={onNavigateToForgotPassword}
+                className="text-xs font-semibold text-sky-600 hover:text-sky-700 underline focus:outline-none cursor-pointer"
+              >
+                Forgot password?
+              </button>
+            )}
           </div>
           <div className="relative">
             <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">

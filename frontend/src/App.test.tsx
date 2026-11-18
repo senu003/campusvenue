@@ -129,6 +129,29 @@ describe('App & Authentication Slice Component Tests', () => {
         } as Response;
       }
 
+      if (url.includes('/api/auth/forgot-password')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            message: 'If this email address is registered and eligible, a password reset link has been sent. Please check your inbox.',
+          }),
+        } as Response;
+      }
+
+      if (url.includes('/api/auth/reset-password')) {
+        if (typeof input === 'object' && 'body' in input) {
+          // Check if body contains invalid token
+        }
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            message: 'Password has been successfully reset. You may now sign in with your new password.',
+          }),
+        } as Response;
+      }
+
       if (url.includes('/api/dev/mailbox/clear')) {
         return {
           ok: true,
@@ -164,13 +187,13 @@ describe('App & Authentication Slice Component Tests', () => {
     });
   };
 
-  it('renders application brand, Phase 1A.2 banner, and system health status', async () => {
+  it('renders application brand, Phase 1A banner, and system health status', async () => {
     setupFetchMock({ healthOk: true });
 
     render(<App />);
 
     expect(screen.getByText('CampusVenue')).toBeInTheDocument();
-    expect(screen.getByText('Phase 1A.2 Active')).toBeInTheDocument();
+    expect(screen.getByText('Phase 1A Active')).toBeInTheDocument();
 
     await waitFor(() => {
       const healthyBadges = screen.getAllByText('Healthy');
@@ -341,6 +364,134 @@ describe('App & Authentication Slice Component Tests', () => {
       const signInLabels = screen.getAllByText('Sign In');
       expect(signInLabels.length).toBeGreaterThanOrEqual(1);
       expect(screen.queryByText('coordinator@campus.internal')).not.toBeInTheDocument();
+    });
+  });
+
+  it('navigates from Sign In to Forgot Password form and submits reset request', async () => {
+    setupFetchMock({ healthOk: true, authenticated: false });
+
+    render(<App />);
+
+    const signInNav = screen.getByTestId('nav-auth-tab');
+    fireEvent.click(signInNav);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('forgot-password-link')).toBeInTheDocument();
+    });
+
+    // Click "Forgot password?"
+    fireEvent.click(screen.getByTestId('forgot-password-link'));
+
+    await waitFor(() => {
+      expect(screen.getByText('Forgot your password?')).toBeInTheDocument();
+      expect(screen.getByLabelText(/University Email Address/i)).toBeInTheDocument();
+      expect(screen.getByTestId('forgot-password-submit-btn')).toBeInTheDocument();
+    });
+
+    const emailInput = screen.getByLabelText(/University Email Address/i);
+    fireEvent.change(emailInput, { target: { value: 'recovery_student@campus.internal' } });
+
+    fireEvent.click(screen.getByTestId('forgot-password-submit-btn'));
+
+    await waitFor(() => {
+      expect(screen.getByText('Check your email')).toBeInTheDocument();
+      expect(screen.getByText('recovery_student@campus.internal')).toBeInTheDocument();
+      expect(screen.getByTestId('forgot-password-mailbox-btn')).toBeInTheDocument();
+      expect(screen.getByTestId('forgot-password-return-login-btn')).toBeInTheDocument();
+    });
+  });
+
+  it('renders Reset Password form when loaded via direct link parameters and enforces password checklist', async () => {
+    setupFetchMock({ healthOk: true, authenticated: false });
+
+    // Using URL fragment keeping the token out of initial HTTP request to the server
+    window.history.pushState({}, '', '/?tab=reset-password#userId=33333333-4444-5555-6666-777777777777&token=valid-reset-token');
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Choose a new password')).toBeInTheDocument();
+      expect(screen.getByLabelText(/^New Password/i)).toBeInTheDocument();
+      expect(screen.getByLabelText(/Confirm New Password/i)).toBeInTheDocument();
+      expect(screen.getByText('Password Requirements:')).toBeInTheDocument();
+    });
+
+    const newPasswordInput = screen.getByLabelText(/^New Password/i);
+    const confirmPasswordInput = screen.getByLabelText(/Confirm New Password/i);
+    const submitBtn = screen.getByTestId('reset-password-submit-btn');
+
+    // Initially disabled
+    expect(submitBtn).toBeDisabled();
+
+    // Type weak password
+    fireEvent.change(newPasswordInput, { target: { value: 'weak' } });
+    fireEvent.change(confirmPasswordInput, { target: { value: 'weak' } });
+    expect(submitBtn).toBeDisabled();
+
+    // Type strong matching password
+    fireEvent.change(newPasswordInput, { target: { value: 'BrandNewSecurePass123!' } });
+    fireEvent.change(confirmPasswordInput, { target: { value: 'BrandNewSecurePass123!' } });
+    expect(submitBtn).not.toBeDisabled();
+
+    // Submit reset
+    fireEvent.click(submitBtn);
+
+    // Verify redirection to Sign In with success notice
+    await waitFor(() => {
+      expect(screen.getByTestId('login-success-banner')).toBeInTheDocument();
+      expect(screen.getByText('Password Reset Completed')).toBeInTheDocument();
+      expect(screen.getByText('Sign in to CampusVenue')).toBeInTheDocument();
+    });
+  });
+
+  it('renders Invalid or Expired Link view when loaded with missing reset parameters', async () => {
+    setupFetchMock({ healthOk: true, authenticated: false });
+
+    window.history.pushState({}, '', '/?tab=reset-password#userId=&token=');
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Invalid or Expired Link')).toBeInTheDocument();
+      expect(screen.getByTestId('request-new-link-btn')).toBeInTheDocument();
+    });
+
+    // Clicking "Request New Reset Link" navigates to Forgot Password form
+    fireEvent.click(screen.getByTestId('request-new-link-btn'));
+
+    await waitFor(() => {
+      expect(screen.getByText('Forgot your password?')).toBeInTheDocument();
+    });
+  });
+
+  it('detects password reset link in DevMailbox and navigates to Reset Password form', async () => {
+    const mockResetEmail = {
+      id: '44444444-5555-6666-7777-888888888888',
+      to: 'reset_user@campus.internal',
+      subject: 'Reset your CampusVenue password',
+      bodyHtml: '<p>Reset password: <a href="http://localhost:3000/?tab=reset-password#userId=44444444-5555-6666-7777-888888888888&token=reset-token-xyz">Reset Password</a></p>',
+      sentAtUtc: new Date().toISOString(),
+    };
+
+    setupFetchMock({ healthOk: true, mailboxMessages: [mockResetEmail] });
+
+    render(<App />);
+
+    const mailboxTab = screen.getByTestId('nav-mailbox-tab');
+    fireEvent.click(mailboxTab);
+
+    await waitFor(() => {
+      expect(screen.getByText('Development Mailbox')).toBeInTheDocument();
+      expect(screen.getAllByText('reset_user@campus.internal').length).toBeGreaterThanOrEqual(1);
+      expect(screen.getByTestId('one-click-reset-btn')).toBeInTheDocument();
+    });
+
+    // Click "Reset Password in App ->"
+    fireEvent.click(screen.getByTestId('one-click-reset-btn'));
+
+    await waitFor(() => {
+      expect(screen.getByText('Choose a new password')).toBeInTheDocument();
+      expect(screen.getByTestId('reset-password-submit-btn')).toBeInTheDocument();
     });
   });
 });

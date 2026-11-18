@@ -5,6 +5,7 @@ using CampusVenue.Api.Infrastructure.Health;
 using CampusVenue.Api.Infrastructure.Middleware;
 using CampusVenue.Api.Modules.Identity.Domain;
 using CampusVenue.Api.Modules.Identity.Features.Auth;
+using CampusVenue.Api.Modules.Identity.Features.PasswordRecovery;
 using CampusVenue.Api.Modules.Identity.Services;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.HttpOverrides;
@@ -60,9 +61,23 @@ builder.Services.AddIdentity<ApplicationUser, ApplicationRole>(options =>
     options.Password.RequireNonAlphanumeric = true;
     options.Password.RequireUppercase = true;
     options.Password.RequireLowercase = true;
+    options.Tokens.PasswordResetTokenProvider = PasswordResetTokenProviderDefaults.ProviderName;
 })
 .AddEntityFrameworkStores<CampusVenueDbContext>()
-.AddDefaultTokenProviders();
+.AddDefaultTokenProviders()
+.AddTokenProvider<PasswordResetTokenProvider<ApplicationUser>>(PasswordResetTokenProviderDefaults.ProviderName);
+
+builder.Services.Configure<PasswordResetTokenProviderOptions>(options =>
+{
+    // Dedicated 2-hour token lifespan scoped exclusively to password reset
+    options.TokenLifespan = TimeSpan.FromHours(2);
+});
+
+builder.Services.Configure<SecurityStampValidatorOptions>(options =>
+{
+    // Re-verify session security stamp against database every 5 minutes to reject invalidated sessions
+    options.ValidationInterval = TimeSpan.FromMinutes(5);
+});
 
 builder.Services.ConfigureApplicationCookie(options =>
 {
@@ -212,6 +227,7 @@ app.MapCampusVenueHealthEndpoint();
 
 // Map Module Endpoints
 app.MapAuthEndpoints();
+app.MapPasswordRecoveryEndpoints();
 
 app.Run();
 

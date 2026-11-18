@@ -8,6 +8,10 @@ import type {
   AntiforgeryResponseDto,
   RegisterResponseDto,
   ConfirmEmailResponseDto,
+  ForgotPasswordCredentials,
+  ForgotPasswordResponseDto,
+  ResetPasswordCredentials,
+  ResetPasswordResponseDto,
   DevEmailDto,
 } from './types';
 
@@ -246,6 +250,87 @@ export async function fetchDevMailbox(): Promise<DevEmailDto[]> {
   }
 
   const data: DevEmailDto[] = await response.json();
+  return data;
+}
+
+export async function forgotPassword(credentials: ForgotPasswordCredentials): Promise<ForgotPasswordResponseDto> {
+  let token = memoryAntiforgeryToken;
+  if (!token) {
+    token = await fetchAntiforgeryToken();
+  }
+
+  const response = await fetch('/api/auth/forgot-password', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+      'X-XSRF-TOKEN': token,
+    },
+    credentials: 'include',
+    body: JSON.stringify({
+      email: credentials.email,
+    }),
+  });
+
+  if (response.status === 429) {
+    throw new Error('Too many password reset requests. Please wait a minute before trying again.');
+  }
+
+  if (response.status === 400) {
+    const errorData = await response.json().catch(() => null);
+    const detail = (errorData && typeof errorData === 'object' && 'detail' in errorData && typeof errorData.detail === 'string')
+      ? errorData.detail
+      : 'Password recovery request validation failed.';
+    throw new Error(detail);
+  }
+
+  if (!response.ok) {
+    throw new Error(`Password reset request failed: Server returned HTTP ${response.status}`);
+  }
+
+  const data: ForgotPasswordResponseDto = await response.json();
+  return data;
+}
+
+export async function resetPassword(credentials: ResetPasswordCredentials): Promise<ResetPasswordResponseDto> {
+  let token = memoryAntiforgeryToken;
+  if (!token) {
+    token = await fetchAntiforgeryToken();
+  }
+
+  const response = await fetch('/api/auth/reset-password', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+      'X-XSRF-TOKEN': token,
+    },
+    credentials: 'include',
+    body: JSON.stringify({
+      userId: credentials.userId,
+      token: credentials.token,
+      newPassword: credentials.newPassword,
+      confirmPassword: credentials.confirmPassword,
+    }),
+  });
+
+  if (response.status === 429) {
+    throw new Error('Too many password reset attempts. Please wait a minute before trying again.');
+  }
+
+  if (response.status === 400) {
+    const errorData = await response.json().catch(() => null);
+    const detail = (errorData && typeof errorData === 'object' && 'detail' in errorData && typeof errorData.detail === 'string')
+      ? errorData.detail
+      : 'Password reset validation failed.';
+    throw new Error(detail);
+  }
+
+  if (!response.ok) {
+    throw new Error(`Password reset failed: Server returned HTTP ${response.status}`);
+  }
+
+  const data: ResetPasswordResponseDto = await response.json();
   return data;
 }
 

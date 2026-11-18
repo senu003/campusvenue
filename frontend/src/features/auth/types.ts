@@ -55,6 +55,25 @@ export interface ConfirmEmailResponseDto {
   message: string;
 }
 
+export interface ForgotPasswordCredentials {
+  email: string;
+}
+
+export interface ForgotPasswordResponseDto {
+  message: string;
+}
+
+export interface ResetPasswordCredentials {
+  userId: string;
+  token: string;
+  newPassword: string;
+  confirmPassword: string;
+}
+
+export interface ResetPasswordResponseDto {
+  message: string;
+}
+
 export interface DevEmailDto {
   id: string;
   to: string;

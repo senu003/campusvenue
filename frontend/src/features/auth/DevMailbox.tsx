@@ -5,9 +5,10 @@ import { fetchDevMailbox, clearDevMailbox } from './api';
 
 interface DevMailboxProps {
   onSelectVerificationLink?: (userId: string, token: string) => void;
+  onSelectResetLink?: (userId: string, token: string) => void;
 }
 
-export const DevMailbox: React.FC<DevMailboxProps> = ({ onSelectVerificationLink }) => {
+export const DevMailbox: React.FC<DevMailboxProps> = ({ onSelectVerificationLink, onSelectResetLink }) => {
   const [emails, setEmails] = useState<DevEmailDto[]>([]);
   const [selectedEmail, setSelectedEmail] = useState<DevEmailDto | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
@@ -68,13 +69,14 @@ export const DevMailbox: React.FC<DevMailboxProps> = ({ onSelectVerificationLink
     }
   };
 
-  // Helper to extract userId and token from email HTML for quick one-click verification in SPA
+  // Helper to extract userId and token from email HTML for quick one-click verification/reset in SPA
   const extractVerificationParams = (html: string) => {
-    const match = html.match(/userId=([a-f0-9-]+)&(?:amp;)?token=([^"'<>&]+)/);
-    if (match) {
+    const userIdMatch = html.match(/userId=([a-f0-9-]+)/i);
+    const tokenMatch = html.match(/token=([^"'<>& \t]+)/i);
+    if (userIdMatch && tokenMatch) {
       return {
-        userId: match[1],
-        token: decodeURIComponent(match[2]),
+        userId: userIdMatch[1],
+        token: decodeURIComponent(tokenMatch[1]),
       };
     }
     return null;
@@ -195,28 +197,54 @@ export const DevMailbox: React.FC<DevMailboxProps> = ({ onSelectVerificationLink
                   To: <strong className="text-slate-800">{selectedEmail.to}</strong>
                 </div>
 
-                {/* Quick One-Click Verification Bar */}
-                {extractVerificationParams(selectedEmail.bodyHtml) && onSelectVerificationLink && (
-                  <div className="mt-3 p-3 bg-emerald-50 border border-emerald-200 rounded-lg flex items-center justify-between">
-                    <div className="flex items-center space-x-2 text-emerald-900 text-xs">
-                      <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
-                      <span className="font-medium">Verification link detected in this email</span>
-                    </div>
-                    <button
-                      type="button"
-                      data-testid="one-click-verify-btn"
-                      onClick={() => {
-                        const params = extractVerificationParams(selectedEmail.bodyHtml);
-                        if (params) {
-                          onSelectVerificationLink(params.userId, params.token);
-                        }
-                      }}
-                      className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-xs font-bold shadow-2xs transition"
-                    >
-                      Confirm Now in App
-                    </button>
-                  </div>
-                )}
+                {/* Quick One-Click Verification or Reset Bar */}
+                {(() => {
+                  const params = extractVerificationParams(selectedEmail.bodyHtml);
+                  if (!params) return null;
+
+                  const isResetEmail = selectedEmail.subject.toLowerCase().includes('reset') ||
+                    selectedEmail.bodyHtml.includes('tab=reset-password');
+
+                  if (isResetEmail && onSelectResetLink) {
+                    return (
+                      <div className="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-lg flex items-center justify-between">
+                        <div className="flex items-center space-x-2 text-amber-900 text-xs">
+                          <CheckCircle className="w-4 h-4 text-amber-600 shrink-0" />
+                          <span className="font-medium">Password reset link detected in this email</span>
+                        </div>
+                        <button
+                          type="button"
+                          data-testid="one-click-reset-btn"
+                          onClick={() => onSelectResetLink(params.userId, params.token)}
+                          className="px-3 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded text-xs font-bold shadow-2xs transition cursor-pointer"
+                        >
+                          Reset Password in App &rarr;
+                        </button>
+                      </div>
+                    );
+                  }
+
+                  if (!isResetEmail && onSelectVerificationLink) {
+                    return (
+                      <div className="mt-3 p-3 bg-emerald-50 border border-emerald-200 rounded-lg flex items-center justify-between">
+                        <div className="flex items-center space-x-2 text-emerald-900 text-xs">
+                          <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
+                          <span className="font-medium">Verification link detected in this email</span>
+                        </div>
+                        <button
+                          type="button"
+                          data-testid="one-click-verify-btn"
+                          onClick={() => onSelectVerificationLink(params.userId, params.token)}
+                          className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-xs font-bold shadow-2xs transition cursor-pointer"
+                        >
+                          Confirm Now in App
+                        </button>
+                      </div>
+                    );
+                  }
+
+                  return null;
+                })()}
               </div>
 
               {/* Rendered HTML Email Preview */}

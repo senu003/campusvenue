@@ -79,8 +79,22 @@ This document defines the complete multi-phase roadmap for CampusVenue, from Pha
   - **Frontend**: Accessible `RegisterForm` with live checklist, `ConfirmationNotice`, `EmailVerificationScreen`, embedded `DevMailbox` tab, unconfirmed login alert.
   - **Tests**: 26 backend integration tests in `CampusVenue.Tests`, 8 frontend Vitest tests.
 
-#### Phase 1A.3: Password Recovery & Reset (Planned)
-- **Business Objective**: Secure self-service password reset requests, reset tokens, and recovery workflow.
+#### Phase 1A.3: Password Recovery & Reset (Completed & Verified)
+- **Business Objective**: Provide a secure, self-service password recovery flow for confirmed accounts using expiring tokens, uniform generic responses, URL fragment isolation, and automatic security stamp rotation to invalidate compromised sessions.
+- **Vertical Slice Scope**:
+  - **Backend**: `POST /api/auth/forgot-password` and `POST /api/auth/reset-password` under `Modules/Identity/Features/PasswordRecovery`.
+  - **Security Invariants**:
+    - Returns identical generic response for valid email formats whether unknown, unconfirmed, or confirmed (anti-enumeration defense).
+    - URL fragment token isolation (`#userId=...&token=...`) ensuring reset tokens are excluded from initial HTTP requests.
+    - Sends transactional reset email only for eligible confirmed accounts (`EmailConfirmed == true`).
+    - Reset links/tokens and passwords excluded from API responses and server logs.
+    - Protected with rate limiting (`AuthLimiter`) and anti-CSRF token verification (`X-XSRF-TOKEN`).
+    - Dedicated token provider (`PasswordResetTokenProvider`) scoping 2-hour lifetime to password reset while preserving the default 24-hour lifetime for email confirmation.
+    - Regression assertion ensuring password reset and email confirmation token providers are configured independently.
+    - ASP.NET Core Identity rotates `SecurityStamp` upon reset; `SecurityStampValidator` configured with 5-minute interval to reject previously issued session cookies.
+    - Reset tokens are strictly single-use; token reuse is rejected.
+  - **Frontend**: Accessible `ForgotPasswordForm`, `ResetPasswordForm` with live requirements checklist, clear error/invalid/expired link states, URL fragment/query parameter cleanup, pre-filled login upon reset, and Dev Mailbox integration.
+  - **Tests**: 43 backend integration tests in `CampusVenue.Tests`, 12 frontend Vitest tests.
 
 #### Phase 1B: Roles & Authorization Policies (RBAC)
 - **Business Objective**: Implement institutional role hierarchies (`UniversityAdmin`, `FacilityAdmin`, `EventCoordinator`, `Participant`) and server-side policy enforcement.

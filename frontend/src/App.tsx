@@ -26,42 +26,145 @@ import { AccountScreen } from './features/auth/AccountScreen';
 import { RegisterForm } from './features/auth/RegisterForm';
 import { ConfirmationNotice } from './features/auth/ConfirmationNotice';
 import { EmailVerificationScreen } from './features/auth/EmailVerificationScreen';
+import { ForgotPasswordForm } from './features/auth/ForgotPasswordForm';
+import { ResetPasswordForm } from './features/auth/ResetPasswordForm';
 import { DevMailbox } from './features/auth/DevMailbox';
 
 type ActiveTab = 'overview' | 'auth' | 'mailbox';
-type AuthSubView = 'login' | 'register' | 'confirmation-notice' | 'verify';
+type AuthSubView = 'login' | 'register' | 'confirmation-notice' | 'verify' | 'forgot-password' | 'reset-password';
+
+function parseInitialAuthParams(): {
+  activeTab: ActiveTab;
+  authSubView: AuthSubView;
+  verifyUserId: string;
+  verifyToken: string;
+  resetUserId: string;
+  resetToken: string;
+} {
+  if (typeof window === 'undefined') {
+    return {
+      activeTab: 'overview',
+      authSubView: 'login',
+      verifyUserId: '',
+      verifyToken: '',
+      resetUserId: '',
+      resetToken: '',
+    };
+  }
+
+  const searchParams = new URLSearchParams(window.location.search);
+  const hashRaw = window.location.hash.startsWith('#')
+    ? window.location.hash.slice(1)
+    : window.location.hash;
+  const hashString = hashRaw.includes('?') ? hashRaw.slice(hashRaw.indexOf('?') + 1) : hashRaw;
+  const hashParams = new URLSearchParams(hashString);
+
+  const tab = searchParams.get('tab') || hashParams.get('tab');
+
+  // Fragment token/userId take precedence for reset password (keeping token out of initial HTTP request)
+  const fragmentToken = hashParams.get('token') ?? '';
+  const fragmentUserId = hashParams.get('userId') ?? '';
+  const searchToken = searchParams.get('token') ?? '';
+  const searchUserId = searchParams.get('userId') ?? '';
+
+  const token = fragmentToken || searchToken;
+  const userId = fragmentUserId || searchUserId;
+
+  if (tab === 'mailbox') {
+    return {
+      activeTab: 'mailbox',
+      authSubView: 'login',
+      verifyUserId: '',
+      verifyToken: '',
+      resetUserId: '',
+      resetToken: '',
+    };
+  }
+
+  if (tab === 'reset-password' || (token && userId && (tab === 'reset-password' || hashRaw.includes('reset')))) {
+    return {
+      activeTab: 'auth',
+      authSubView: 'reset-password',
+      verifyUserId: '',
+      verifyToken: '',
+      resetUserId: userId,
+      resetToken: token,
+    };
+  }
+
+  if (tab === 'forgot-password') {
+    return {
+      activeTab: 'auth',
+      authSubView: 'forgot-password',
+      verifyUserId: '',
+      verifyToken: '',
+      resetUserId: '',
+      resetToken: '',
+    };
+  }
+
+  if (tab === 'verify' || (token && userId)) {
+    return {
+      activeTab: 'auth',
+      authSubView: 'verify',
+      verifyUserId: userId,
+      verifyToken: token,
+      resetUserId: '',
+      resetToken: '',
+    };
+  }
+
+  if (tab === 'register') {
+    return {
+      activeTab: 'auth',
+      authSubView: 'register',
+      verifyUserId: '',
+      verifyToken: '',
+      resetUserId: '',
+      resetToken: '',
+    };
+  }
+
+  if (tab === 'auth') {
+    return {
+      activeTab: 'auth',
+      authSubView: 'login',
+      verifyUserId: '',
+      verifyToken: '',
+      resetUserId: '',
+      resetToken: '',
+    };
+  }
+
+  return {
+    activeTab: 'overview',
+    authSubView: 'login',
+    verifyUserId: '',
+    verifyToken: '',
+    resetUserId: '',
+    resetToken: '',
+  };
+}
 
 const CampusVenueContent: React.FC = () => {
   const { user, isAuthenticated, logout, isLoading: authLoading } = useAuth();
+  const [initialAuth] = useState(parseInitialAuthParams);
 
-  const [verifyParams, setVerifyParams] = useState<{ userId: string; token: string }>(() => {
-    if (typeof window === 'undefined') return { userId: '', token: '' };
-    const params = new URLSearchParams(window.location.search);
-    return {
-      userId: params.get('userId') ?? '',
-      token: params.get('token') ?? '',
-    };
+  const [verifyParams, setVerifyParams] = useState<{ userId: string; token: string }>({
+    userId: initialAuth.verifyUserId,
+    token: initialAuth.verifyToken,
   });
 
-  const [activeTab, setActiveTab] = useState<ActiveTab>(() => {
-    if (typeof window === 'undefined') return 'overview';
-    const params = new URLSearchParams(window.location.search);
-    if (params.get('userId') && params.get('token')) return 'auth';
-    const tab = params.get('tab');
-    if (tab === 'mailbox') return 'mailbox';
-    if (tab === 'auth' || tab === 'register') return 'auth';
-    return 'overview';
+  const [resetParams, setResetParams] = useState<{ userId: string; token: string }>({
+    userId: initialAuth.resetUserId,
+    token: initialAuth.resetToken,
   });
 
-  const [authSubView, setAuthSubView] = useState<AuthSubView>(() => {
-    if (typeof window === 'undefined') return 'login';
-    const params = new URLSearchParams(window.location.search);
-    if (params.get('userId') && params.get('token')) return 'verify';
-    if (params.get('tab') === 'register') return 'register';
-    return 'login';
-  });
+  const [activeTab, setActiveTab] = useState<ActiveTab>(initialAuth.activeTab);
+  const [authSubView, setAuthSubView] = useState<AuthSubView>(initialAuth.authSubView);
 
   const [registeredEmail, setRegisteredEmail] = useState<string>('');
+  const [loginSuccessMessage, setLoginSuccessMessage] = useState<string | null>(null);
 
   const [health, setHealth] = useState<HealthStatusResponse | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
@@ -133,7 +236,7 @@ const CampusVenueContent: React.FC = () => {
   }, []);
 
   const modules = [
-    { name: 'Identity & Access', phase: 'Phase 1A.2', icon: ShieldCheck, desc: 'Authentication, Self-Service Sign-up, Email Verification, Same-Origin HttpOnly cookies, CSRF defense.' },
+    { name: 'Identity & Access', phase: 'Phase 1A', icon: ShieldCheck, desc: 'Authentication, Self-Service Sign-up, Email Verification, Password Recovery, Same-Origin HttpOnly cookies, CSRF defense.' },
     { name: 'Organizations', phase: 'Phase 1C', icon: Users, desc: 'University departments, student societies, administrative units.' },
     { name: 'Facilities & Spaces', phase: 'Phase 2', icon: Building2, desc: 'Auditoriums, seminar halls, capacities, AV equipment.' },
     { name: 'Reservations', phase: 'Phases 3-4', icon: Calendar, desc: 'Timetable conflict detection, setup/cleanup buffers, approvals.' },
@@ -158,7 +261,7 @@ const CampusVenueContent: React.FC = () => {
                 <div className="flex items-center space-x-2">
                   <span className="text-xl font-bold text-slate-900 tracking-tight">CampusVenue</span>
                   <span className="px-2 py-0.5 text-xs font-semibold bg-sky-100 text-sky-800 rounded-full border border-sky-200">
-                    Phase 1A.2 Active
+                    Phase 1A Active
                   </span>
                 </div>
                 <p className="text-xs text-slate-500 hidden sm:block">University Venue Reservation & Event Management</p>
@@ -258,6 +361,11 @@ const CampusVenueContent: React.FC = () => {
                 setAuthSubView('verify');
                 setActiveTab('auth');
               }}
+              onSelectResetLink={(userId, token) => {
+                setResetParams({ userId, token });
+                setAuthSubView('reset-password');
+                setActiveTab('auth');
+              }}
             />
           </section>
         ) : activeTab === 'auth' ? (
@@ -284,11 +392,39 @@ const CampusVenueContent: React.FC = () => {
                 }}
                 onNavigateToLogin={() => setAuthSubView('login')}
               />
+            ) : authSubView === 'forgot-password' ? (
+              <ForgotPasswordForm
+                initialEmail={registeredEmail}
+                onNavigateToLogin={() => setAuthSubView('login')}
+                onNavigateToMailbox={() => setActiveTab('mailbox')}
+              />
+            ) : authSubView === 'reset-password' ? (
+              <ResetPasswordForm
+                userId={resetParams.userId}
+                token={resetParams.token}
+                onSuccess={(msg) => {
+                  setLoginSuccessMessage(msg);
+                  setAuthSubView('login');
+                }}
+                onNavigateToLogin={() => setAuthSubView('login')}
+                onRequestNewLink={() => setAuthSubView('forgot-password')}
+              />
             ) : (
               <LoginForm
                 initialEmail={registeredEmail}
-                onSuccess={() => setActiveTab('auth')}
-                onNavigateToRegister={() => setAuthSubView('register')}
+                successMessage={loginSuccessMessage}
+                onSuccess={() => {
+                  setLoginSuccessMessage(null);
+                  setActiveTab('auth');
+                }}
+                onNavigateToRegister={() => {
+                  setLoginSuccessMessage(null);
+                  setAuthSubView('register');
+                }}
+                onNavigateToForgotPassword={() => {
+                  setLoginSuccessMessage(null);
+                  setAuthSubView('forgot-password');
+                }}
                 onNavigateToMailbox={() => setActiveTab('mailbox')}
               />
             )}
@@ -300,10 +436,10 @@ const CampusVenueContent: React.FC = () => {
               <div className="max-w-3xl space-y-4">
                 <div className="flex items-center space-x-2">
                   <span className="px-2.5 py-0.5 text-xs font-bold uppercase tracking-wider bg-emerald-100 text-emerald-800 rounded-md">
-                    Phase 1A.2 Active Slice
+                    Phase 1A Active Slice
                   </span>
                   <span className="text-xs text-slate-400">|</span>
-                  <span className="text-xs font-semibold text-slate-600">Self-Service Sign-Up & Email Verification</span>
+                  <span className="text-xs font-semibold text-slate-600">Self-Service Sign-Up, Verification & Password Recovery</span>
                 </div>
                 <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
                   University Venue Reservation & Management
@@ -311,7 +447,7 @@ const CampusVenueContent: React.FC = () => {
                 <p className="text-slate-600 leading-relaxed text-sm sm:text-base">
                   CampusVenue provides an auditable, high-reliability platform for managing university auditoriums,
                   lecture halls, scheduling conflict detection, and concurrent-safe event ticketing.
-                  Phase 1A.2 delivers self-service registration, password policy verification, and local email confirmation
+                  Phase 1A delivers self-service registration, password recovery, policy verification, and local email confirmation
                   without needing an external mail account or PowerShell user seeding.
                 </p>
                 <div className="pt-2 flex flex-wrap gap-3">
@@ -435,11 +571,10 @@ const CampusVenueContent: React.FC = () => {
                           </p>
                           {pg && <p className="text-xs text-slate-500 font-mono">{pg.durationMs.toFixed(1)} ms</p>}
                         </div>
-                        <span className={`inline-flex items-center space-x-1 px-2.5 py-1 rounded-full text-xs font-bold ${
-                          isHealthy
-                            ? 'bg-emerald-100 text-emerald-800'
-                            : 'bg-rose-100 text-rose-800'
-                        }`}>
+                        <span className={`inline-flex items-center space-x-1 px-2.5 py-1 rounded-full text-xs font-bold ${isHealthy
+                          ? 'bg-emerald-100 text-emerald-800'
+                          : 'bg-rose-100 text-rose-800'
+                          }`}>
                           {isHealthy ? (
                             <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
                           ) : (
