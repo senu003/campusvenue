@@ -10,8 +10,8 @@ Every contributor and AI agent must strictly adhere to the following 16 core dir
 
 1. **Modular Monolith Architecture**: Target ASP.NET Core with C# using a Modular Monolith. Partition functionality into dedicated business modules (`Identity`, `Organizations`, `Facilities`, `Reservations`, `Events`, `Registrations`, `Seating`, `Notifications`).
 2. **Vertical Slice Architecture within Business Modules**: Organize code within modules by business capability/use-case (command/query, endpoint, validation, data access, and response DTO co-located) rather than global technical horizontal layers.
-3. **One Complete End-to-End Feature at a Time**: Never construct disconnected backend layers across multiple modules while leaving the frontend for later. Every feature is delivered as an integrated, runnable slice.
-4. **Full-Stack Delivery Slice**: Each feature must encompass backend endpoints, PostgreSQL schema/database changes where required, frontend UI, integration, automated tests, and manual verification instructions.
+3. **One Complete End-to-End Feature at a Time**: Work one vertical feature at a time. Never construct disconnected backend layers across multiple modules while leaving the frontend for later. Every feature is delivered as an integrated, runnable slice.
+4. **Full-Stack Delivery Slice**: Each feature must encompass backend endpoints, PostgreSQL schema/database changes where required, frontend UI, integration, automated tests, and manual verification instructions. Keep dependent changes and their tests together.
 5. **No Premature Microservices or Unjustified Infrastructure**: Avoid distributed microservices, message brokers (Kafka/RabbitMQ), Redis caching, MediatR, or Kubernetes until an approved Architecture Decision Record (ADR) formally justifies the operational complexity.
 6. **No Speculative Database Tables**: Schema migrations must be forward-only and strictly tied to the currently active phase. Never create speculative tables or empty entities for future roadmap milestones.
 7. **No Mock Runtime Business Endpoints**: Production code paths must never contain synthetic hardcoded fakes or mock APIs masquerading as completed business features. Test doubles belong exclusively within automated test suites.
@@ -30,7 +30,7 @@ Every contributor and AI agent must strictly adhere to the following 16 core dir
 ## 2. Operating Principles & Phase Boundaries
 
 - **Production-Grade Standard**: Treat CampusVenue as a real, auditable enterprise engineering product, never as a tutorial demo or quick CRUD script.
-- **Phase Boundary Enforcement**: Work strictly within the current authorized phase. **Current Phase: Phase 0 (Foundation)**. Do not implement business logic, entities, or screens for future phases without explicit approval.
+- **Phase Boundary Enforcement**: Work strictly within the currently authorized phase or feature slice (e.g., Phase 1B, Phase 1C, Phase 2, etc.). Deliver one complete vertical feature slice at a time (database schema, API endpoints, React UI, tests, and documentation). Do not implement business logic, entities, or screens for future phases without explicit approval.
 - **Technology Stack**:
   - Backend: ASP.NET Core 10 LTS / C# 14, EF Core 10 with Npgsql, PostgreSQL 16.
   - Frontend: React (18/19), TypeScript (`strict: true`, zero `any`), Vite, Tailwind CSS.

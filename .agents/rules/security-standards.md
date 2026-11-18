@@ -1,4 +1,4 @@
-﻿---
+---
 description: Security standards for authentication, authorization, secret protection, CORS, and data safety.
 trigger: always_on
 ---
@@ -10,13 +10,17 @@ trigger: always_on
 - **Zero Secret Commits**:
   - Never commit API keys, connection strings with production/staging credentials, JWT private keys, or passwords.
   - Development credentials must reside in `.env` (strictly ignored by Git) or user secrets (`dotnet user-secrets`).
-  - `.env.example` provides safe placeholder schemas with dummy values only.
+  - `.env.example` provides safe placeholder schemas with dummy values only (`campusvenue_dev_secret_change_me`).
+- **Data & Credential Hygiene**:
+  - Keep passwords, tokens, and personal test data out of logs, documentation, and Git.
+  - Test suites and seeders must use configured environment variables or synthetic dummy institutional emails (`@campus.internal`), never personal developer data.
 
 ## 2. Authentication & Authorization Guardrails
 
 - **Zero Client Trust**:
   - Never trust client-sent user IDs, roles, organization memberships, or permissions. All identity and role claims must be parsed and verified from signed server tokens or secure HTTP-only cookies.
-- **Server Enforcement**:
+- **Server Enforcement & Validation**:
+  - Validate and authorize all requests on the server before executing business logic.
   - Every mutating endpoint must enforce role and organization-level scoping on the server.
   - A coordinator in Department A cannot reserve or approve venues assigned to Department B unless granted university-wide administrative privileges.
 - **Session & Cookie Security**:

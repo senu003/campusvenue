@@ -1,4 +1,4 @@
-﻿---
+---
 description: Documentation maintenance and phase-completion criteria.
 trigger: model_decision
 ---
@@ -9,7 +9,7 @@ trigger: model_decision
 
 - **Never Misrepresent Status**:
   - Never document planned or future features as completed or live.
-  - Distinguish between **Implemented (Phase 0)**, **In Progress**, and **Planned (Phases 1-13)**.
+  - Distinguish clearly between **Completed & Verified** milestones (e.g., Phase 0, Phase 1A.1, Phase 1A.2), **In Progress** slices, and **Planned** roadmap phases.
   - Do not fabricate benchmark figures, test percentages, deployment links, or fictional client rosters.
 - **Continuous Documentation Sync**:
   - Keep root `README.md`, architecture specifications (`docs/architecture/`), and progress logs (`docs/progress/`) aligned with actual working code.
