@@ -3,6 +3,7 @@ import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { UsersScreen } from './UsersScreen';
 import { AuthContext, type AuthContextValue } from '../auth/context';
+import { setCachedAntiforgeryToken } from '../auth/api';
 import type { User } from '../auth/types';
 import type { UserDirectoryResponse } from './types';
 
@@ -61,6 +62,7 @@ function renderWithAuth(
 describe('UsersScreen Component Tests', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    setCachedAntiforgeryToken(null);
   });
 
   it('renders Access Denied view when signed-out', async () => {
@@ -246,5 +248,245 @@ describe('UsersScreen Component Tests', () => {
       expect(screen.getByText('Failed to Load User Directory')).toBeInTheDocument();
       expect(screen.getByRole('button', { name: /Retry/i })).toBeInTheDocument();
     });
+  });
+
+  it('renders Manage roles for eligible rows and Operator Managed for UniversityAdmin', async () => {
+    const adminWithMfa: User = {
+      id: '11111111-1111-1111-1111-111111111111',
+      email: 'admin@campus.internal',
+      twoFactorEnabled: true,
+      roles: ['UniversityAdmin'],
+      mfaCompleted: true,
+    };
+
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => mockUsersData,
+    } as Response);
+
+    renderWithAuth(<UsersScreen />, {
+      user: adminWithMfa,
+      isAuthenticated: true,
+      isLoading: false,
+    });
+
+    await waitFor(() => {
+      // UniversityAdmin row should show "Operator Managed"
+      expect(screen.getByTestId('role-managed-cli-11111111-1111-1111-1111-111111111111')).toBeInTheDocument();
+      // Participant row should have Manage roles button
+      expect(screen.getByTestId('manage-roles-btn-22222222-2222-2222-2222-222222222222')).toBeInTheDocument();
+    });
+  });
+
+  it('opens Manage roles modal and successfully assigns staff roles, refreshing the row', async () => {
+    const adminWithMfa: User = {
+      id: '11111111-1111-1111-1111-111111111111',
+      email: 'admin@campus.internal',
+      twoFactorEnabled: true,
+      roles: ['UniversityAdmin'],
+      mfaCompleted: true,
+    };
+
+    const fetchSpy = vi.spyOn(globalThis, 'fetch')
+      // 1. Initial directory load
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => mockUsersData,
+      } as Response)
+      // 2. Antiforgery token fetch if needed
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ requestToken: 'test-xsrf-token' }),
+      } as Response)
+      // 3. PUT /api/users/{id}/roles
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          userId: '22222222-2222-2222-2222-222222222222',
+          roles: ['FacilityAdmin'],
+          concurrencyStamp: 'new-stamp-123',
+          message: 'User roles updated successfully.',
+        }),
+      } as Response);
+
+    renderWithAuth(<UsersScreen />, {
+      user: adminWithMfa,
+      isAuthenticated: true,
+      isLoading: false,
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('manage-roles-btn-22222222-2222-2222-2222-222222222222')).toBeInTheDocument();
+    });
+
+    // Open manage modal
+    fireEvent.click(screen.getByTestId('manage-roles-btn-22222222-2222-2222-2222-222222222222'));
+
+    expect(screen.getByTestId('manage-roles-modal')).toBeInTheDocument();
+    expect(screen.getAllByText('student@campus.internal').length).toBeGreaterThanOrEqual(2);
+
+    // Select FacilityAdmin
+    const facilityCheckbox = screen.getByTestId('role-checkbox-FacilityAdmin');
+    expect(facilityCheckbox).not.toBeChecked();
+    fireEvent.click(facilityCheckbox);
+    expect(facilityCheckbox).toBeChecked();
+
+    // Confirm changes
+    const confirmBtn = screen.getByTestId('confirm-roles-btn');
+    fireEvent.click(confirmBtn);
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('manage-roles-modal')).not.toBeInTheDocument();
+      // Updated badge in table row
+      expect(screen.getByTestId('role-badge-facility')).toBeInTheDocument();
+    });
+
+    expect(fetchSpy).toHaveBeenCalledWith(
+      '/api/users/22222222-2222-2222-2222-222222222222/roles',
+      expect.objectContaining({
+        method: 'PUT',
+        body: JSON.stringify({
+          roles: ['FacilityAdmin'],
+          expectedRoles: ['Participant'],
+        }),
+      })
+    );
+  });
+
+  it('detects 409 conflict, explains discrepancy, reloads current roles, and allows retry', async () => {
+    const adminWithMfa: User = {
+      id: '11111111-1111-1111-1111-111111111111',
+      email: 'admin@campus.internal',
+      twoFactorEnabled: true,
+      roles: ['UniversityAdmin'],
+      mfaCompleted: true,
+    };
+
+    vi.spyOn(globalThis, 'fetch')
+      // 1. Initial directory load
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => mockUsersData,
+      } as Response)
+      // 2. Antiforgery token
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ requestToken: 'test-xsrf-token' }),
+      } as Response)
+      // 3. PUT returns 409 Conflict (another admin modified target user)
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 409,
+        json: async () => ({
+          title: 'Conflicting Update',
+          detail: 'The user roles were modified by another administrator.',
+        }),
+      } as Response)
+      // 4. Reload user directory for this user
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          items: [
+            {
+              ...mockUsersData.items[1],
+              roles: ['EventCoordinator'],
+              concurrencyStamp: 'stamp-from-other-admin',
+            },
+          ],
+          totalCount: 1,
+          page: 1,
+          pageSize: 10,
+          totalPages: 1,
+        }),
+      } as Response)
+      // 5. Retry PUT succeeds
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          userId: '22222222-2222-2222-2222-222222222222',
+          roles: ['FacilityAdmin', 'EventCoordinator'],
+          concurrencyStamp: 'final-stamp',
+          message: 'User roles updated successfully.',
+        }),
+      } as Response);
+
+    renderWithAuth(<UsersScreen />, {
+      user: adminWithMfa,
+      isAuthenticated: true,
+      isLoading: false,
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('manage-roles-btn-22222222-2222-2222-2222-222222222222')).toBeInTheDocument();
+    });
+
+    // Open modal
+    fireEvent.click(screen.getByTestId('manage-roles-btn-22222222-2222-2222-2222-222222222222'));
+
+    // Check FacilityAdmin and submit
+    fireEvent.click(screen.getByTestId('role-checkbox-FacilityAdmin'));
+    fireEvent.click(screen.getByTestId('confirm-roles-btn'));
+
+    // Verify 409 Conflict is handled
+    await waitFor(() => {
+      expect(screen.getByTestId('role-conflict-alert')).toBeInTheDocument();
+      expect(screen.getByText(/The user roles were modified by another administrator/i)).toBeInTheDocument();
+    });
+
+    // Verify that the reloaded roles from server (EventCoordinator) are now reflected in the modal
+    await waitFor(() => {
+      expect(screen.getByTestId('role-checkbox-EventCoordinator')).toBeChecked();
+    });
+
+    // Admin now also checks FacilityAdmin and retries
+    fireEvent.click(screen.getByTestId('role-checkbox-FacilityAdmin'));
+    fireEvent.click(screen.getByTestId('confirm-roles-btn'));
+
+    // Success: modal closes and both roles appear in table row
+    await waitFor(() => {
+      expect(screen.queryByTestId('manage-roles-modal')).not.toBeInTheDocument();
+      expect(screen.getByTestId('role-badge-coordinator')).toBeInTheDocument();
+      expect(screen.getByTestId('role-badge-facility')).toBeInTheDocument();
+    });
+  });
+
+  it('cancels role management modal without modifying user roles', async () => {
+    const adminWithMfa: User = {
+      id: '11111111-1111-1111-1111-111111111111',
+      email: 'admin@campus.internal',
+      twoFactorEnabled: true,
+      roles: ['UniversityAdmin'],
+      mfaCompleted: true,
+    };
+
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => mockUsersData,
+    } as Response);
+
+    renderWithAuth(<UsersScreen />, {
+      user: adminWithMfa,
+      isAuthenticated: true,
+      isLoading: false,
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('manage-roles-btn-22222222-2222-2222-2222-222222222222')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTestId('manage-roles-btn-22222222-2222-2222-2222-222222222222'));
+    expect(screen.getByTestId('manage-roles-modal')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('cancel-roles-btn'));
+    expect(screen.queryByTestId('manage-roles-modal')).not.toBeInTheDocument();
   });
 });

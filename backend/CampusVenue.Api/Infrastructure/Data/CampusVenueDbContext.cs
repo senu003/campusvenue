@@ -16,6 +16,8 @@ public class CampusVenueDbContext : IdentityDbContext<ApplicationUser, Applicati
     {
     }
 
+    public DbSet<RoleAssignmentAudit> RoleAssignmentAudits => Set<RoleAssignmentAudit>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
@@ -95,6 +97,34 @@ public class CampusVenueDbContext : IdentityDbContext<ApplicationUser, Applicati
             b.Property(ut => ut.LoginProvider).HasColumnName("login_provider");
             b.Property(ut => ut.Name).HasColumnName("name");
             b.Property(ut => ut.Value).HasColumnName("value");
+        });
+
+        modelBuilder.Entity<RoleAssignmentAudit>(b =>
+        {
+            b.ToTable("role_assignment_audits");
+            b.HasKey(a => a.Id).HasName("pk_role_assignment_audits");
+            b.Property(a => a.Id).HasColumnName("id");
+            b.Property(a => a.ActorId).HasColumnName("actor_id").IsRequired();
+            b.Property(a => a.TargetUserId).HasColumnName("target_user_id").IsRequired();
+            b.Property(a => a.PreviousRoles).HasColumnName("previous_roles").HasColumnType("text[]").IsRequired();
+            b.Property(a => a.NewRoles).HasColumnName("new_roles").HasColumnType("text[]").IsRequired();
+            b.Property(a => a.CreatedAtUtc).HasColumnName("created_at_utc").HasColumnType("timestamp with time zone").IsRequired();
+
+            b.HasOne(a => a.Actor)
+                .WithMany()
+                .HasForeignKey(a => a.ActorId)
+                .HasConstraintName("fk_role_assignment_audits_users_actor_id")
+                .OnDelete(DeleteBehavior.Restrict);
+
+            b.HasOne(a => a.TargetUser)
+                .WithMany()
+                .HasForeignKey(a => a.TargetUserId)
+                .HasConstraintName("fk_role_assignment_audits_users_target_user_id")
+                .OnDelete(DeleteBehavior.Restrict);
+
+            b.HasIndex(a => a.TargetUserId).HasDatabaseName("ix_role_assignment_audits_target_user_id");
+            b.HasIndex(a => a.ActorId).HasDatabaseName("ix_role_assignment_audits_actor_id");
+            b.HasIndex(a => a.CreatedAtUtc).HasDatabaseName("ix_role_assignment_audits_created_at_utc");
         });
 
         // Apply entity configurations from all module assemblies

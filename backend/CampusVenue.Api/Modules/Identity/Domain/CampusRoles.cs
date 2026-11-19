@@ -19,6 +19,12 @@ public static class CampusRoles
         Participant
     ];
 
+    public static readonly IReadOnlyList<string> AssignableStaffRoles =
+    [
+        FacilityAdmin,
+        EventCoordinator
+    ];
+
     public static string GetDescription(string role) => role switch
     {
         UniversityAdmin => "Institutional administrator with university-wide authority over spaces, users, and platform policies.",

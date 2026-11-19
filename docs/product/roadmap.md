@@ -16,7 +16,7 @@ This document defines the complete multi-phase roadmap for CampusVenue, from Pha
 | **Phase 1A.5** | **Sign Out Everywhere** | **Completed & Verified** | Revoke all active sessions via SecurityStamp rotation, immediate local termination, and delayed remote rejection |
 | **Phase 1A.6** | **Authenticator MFA & Recovery Codes** | **Completed & Verified** | TOTP authenticator enrollment, local SVG QR codes, 10 single-use recovery codes, short-lived 2FA challenge flow, secure regenerate/disable |
 | **Phase 1B.1** | **Administrator User Directory** | **Completed & Verified** | Institutional role definitions (`UniversityAdmin`, `FacilityAdmin`, `EventCoordinator`, `Participant`), operator-only elevation, paginated directory API, MFA session policy enforcement |
-| **Phase 1B.2+** | Roles & Authorization Policies (RBAC) | *Planned* | Role assignment endpoints (`POST /api/users/{id}/roles`), organization-scoped permissions |
+| **Phase 1B.2** | **Staff Role Assignment** | **Completed & Verified** | Audited staff role assignment (`FacilityAdmin`, `EventCoordinator`), transactional audit trail, concurrency conflict detection, old session invalidation |
 | **Phase 1C** | University Organizations & Tenancy | *Planned* | Faculties, departments, student societies, coordinator membership assignment, organizational scoping |
 | **Phase 2** | Buildings & Reservable Spaces | *Planned* | Space catalog, capacities, audio-visual equipment, accessibility tags, photo galleries |
 | **Phase 3** | Availability Calendar & Constraints | *Planned* | Timetable blockouts, setup/teardown buffers, maintenance windows, interval math |
@@ -166,8 +166,18 @@ This document defines the complete multi-phase roadmap for CampusVenue, from Pha
     - Search bar, role badges, MFA status indicator, loading skeleton, empty state, and pagination controls.
   - **Tests**: 92 backend integration tests in `CampusVenue.Tests` (16 dedicated UserDirectory tests), 33 frontend Vitest tests.
 
-##### Phase 1B.2+: Administrative Role Assignment & Scoped Permissions (Planned)
-- **Scope**: Role assignment endpoints (`POST /api/users/{id}/roles`), organization-scoped permissions, and coordinator administrative assignments.
+##### Phase 1B.2: Staff Role Assignment (Completed & Verified)
+- **Business Objective**: Provide audited role assignment within the Users screen for `FacilityAdmin` and `EventCoordinator` roles, enforcing the `UniversityAdminWithMfa` policy, preserving operator-only elevation for `UniversityAdmin`, bundling role updates + stamp rotation + audit records in a single PostgreSQL transaction, detecting concurrent conflicts, and invalidating existing sessions.
+- **Vertical Slice Scope**:
+  - **Backend**:
+    - `PUT /api/users/{id}/roles` with antiforgery, `UniversityAdminWithMfa` policy, actor resolution from session claims.
+    - Transactional persistence in PostgreSQL: `user_roles` mutations, `security_stamp` & `concurrency_stamp` updates, and `role_assignment_audits` immutable record creation (`actor_id`, `target_user_id`, `previous_roles`, `new_roles`, `created_at_utc`).
+    - Stale edit detection via `ConcurrencyStamp` / `If-Match` / `ExpectedRoles` returning HTTP 409 Conflict; duplicate submissions return 200 OK no-op without duplicate audit records.
+    - Forward-only EF Core migration `20261119051453_AddRoleAssignmentAudit`.
+  - **Frontend**:
+    - "Manage roles" modal dialog in `UsersScreen.tsx` for eligible accounts (non-`UniversityAdmin` accounts; `UniversityAdmin` marked "Operator Managed").
+    - Role toggles for `FacilityAdmin` and `EventCoordinator`, change summary impact preview, confirmation, optimistic update, 409 conflict handling with auto-reload of current user state.
+  - **Tests**: 104 backend integration tests in `CampusVenue.Tests` (12 dedicated StaffRoleAssignment tests), 37 frontend Vitest tests.
 
 #### Phase 1C: University Organizations & Tenancy
 - **Business Objective**: Model university faculties, academic departments, and student societies, assigning coordinators to specific organizational units.

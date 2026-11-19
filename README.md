@@ -75,7 +75,7 @@ Phases 1-13 — Business Features:  [                    ] 0%   (Planned)
 | **Sign Out Everywhere** | :white_check_mark: **Implemented & Verified** | Phase 1A.5 | Revoke all active sessions via SecurityStamp rotation, immediate local termination, and delayed remote rejection. |
 | **Authenticator MFA & Recovery Codes** | :white_check_mark: **Implemented & Verified** | Phase 1A.6 | TOTP authenticator enrollment, local SVG QR code generation, 10 single-use recovery codes, short-lived 2FA challenge flow, secure regenerate/disable. |
 | **Administrator User Directory & Role Model** | :white_check_mark: **Implemented & Verified** | Phase 1B.1 | Institutional roles (`UniversityAdmin`, `FacilityAdmin`, `EventCoordinator`, `Participant`), operator-only elevation, paginated directory API, and mandatory MFA session enforcement. |
-| **Roles & Authorization Policies** | :hourglass: *Planned* | Phase 1B.2+ | Administrative role assignment endpoints (`POST /api/users/{id}/roles`), organization-scoped permissions. |
+| **Audited Staff Role Assignment** | :white_check_mark: **Implemented & Verified** | Phase 1B.2 | Audited staff role assignment (`FacilityAdmin`, `EventCoordinator`), transactional audit logging, concurrency conflict detection, and old session invalidation. |
 | **University Organizations & Tenancy** | :hourglass: *Planned* | Phase 1C | Faculties, academic departments, student societies, coordinator assignment scoping. |
 | **Buildings & Space Inventory** | :hourglass: *Planned* | Phase 2 | Space catalog, equipment metadata, accessibility tags, photo galleries. |
 | **Availability Calendar & Buffer Math** | :hourglass: *Planned* | Phase 3 | Timetable blockouts, setup/teardown buffers, recurring semester rules. |

@@ -1,4 +1,10 @@
-import type { UserDirectoryResponse, UserDirectoryParams } from './types';
+import type {
+  UserDirectoryResponse,
+  UserDirectoryParams,
+  AssignUserRolesRequest,
+  AssignUserRolesResponse,
+} from './types';
+import { fetchAntiforgeryToken, getCachedAntiforgeryToken, setCachedAntiforgeryToken } from '../auth/api';
 
 export class DirectoryForbiddenError extends Error {
   statusCode: number;
@@ -17,6 +23,16 @@ export class DirectoryAuthError extends Error {
     super(message);
     this.name = 'DirectoryAuthError';
     this.statusCode = 401;
+  }
+}
+
+export class RoleAssignmentConflictError extends Error {
+  statusCode: number;
+
+  constructor(message = 'Conflicting update: Another administrator modified this user’s roles. The latest roles have been reloaded for your review.') {
+    super(message);
+    this.name = 'RoleAssignmentConflictError';
+    this.statusCode = 409;
   }
 }
 
@@ -57,6 +73,64 @@ export async function fetchUserDirectory(params?: UserDirectoryParams): Promise<
 
   if (!response.ok) {
     throw new Error(`Failed to load institutional users (HTTP ${response.status})`);
+  }
+
+  return response.json();
+}
+
+export async function assignUserRoles(
+  userId: string,
+  data: AssignUserRolesRequest
+): Promise<AssignUserRolesResponse> {
+  let token = getCachedAntiforgeryToken();
+  if (!token) {
+    token = await fetchAntiforgeryToken();
+  }
+
+  const response = await fetch(`/api/users/${userId}/roles`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+      'X-XSRF-TOKEN': token,
+    },
+    credentials: 'include',
+    body: JSON.stringify(data),
+  });
+
+  if (response.status === 401) {
+    throw new DirectoryAuthError();
+  }
+
+  if (response.status === 403) {
+    const errorData = await response.json().catch(() => null);
+    const detail = (errorData && typeof errorData === 'object' && 'detail' in errorData && typeof errorData.detail === 'string')
+      ? errorData.detail
+      : undefined;
+    throw new DirectoryForbiddenError(detail);
+  }
+
+  if (response.status === 409) {
+    const errorData = await response.json().catch(() => null);
+    const detail = (errorData && typeof errorData === 'object' && 'detail' in errorData && typeof errorData.detail === 'string')
+      ? errorData.detail
+      : 'Conflicting update: Another administrator modified this user’s roles.';
+    throw new RoleAssignmentConflictError(detail);
+  }
+
+  if (response.status === 400) {
+    const errorData = await response.json().catch(() => null);
+    const detail = (errorData && typeof errorData === 'object' && 'detail' in errorData && typeof errorData.detail === 'string')
+      ? errorData.detail
+      : 'Role assignment validation failed.';
+    if (detail.toLowerCase().includes('antiforgery')) {
+      setCachedAntiforgeryToken(null);
+    }
+    throw new Error(detail);
+  }
+
+  if (!response.ok) {
+    throw new Error(`Failed to update roles (HTTP ${response.status})`);
   }
 
   return response.json();

@@ -5,6 +5,7 @@ export interface UserDirectoryItem {
   emailConfirmed: boolean;
   twoFactorEnabled: boolean;
   createdAtUtc: string;
+  concurrencyStamp?: string;
 }
 
 export interface UserDirectoryResponse {
@@ -19,4 +20,17 @@ export interface UserDirectoryParams {
   page?: number;
   pageSize?: number;
   search?: string;
+}
+
+export interface AssignUserRolesRequest {
+  roles: string[];
+  concurrencyStamp?: string;
+  expectedRoles?: string[];
+}
+
+export interface AssignUserRolesResponse {
+  userId: string;
+  roles: string[];
+  concurrencyStamp: string;
+  message: string;
 }
