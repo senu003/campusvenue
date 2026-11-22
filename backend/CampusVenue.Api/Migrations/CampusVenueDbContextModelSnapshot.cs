@@ -6,6 +6,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
+using NpgsqlTypes;
 
 #nullable disable
 
@@ -21,6 +22,7 @@ namespace CampusVenue.Api.Migrations
                 .HasAnnotation("ProductVersion", "10.0.0")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
+            NpgsqlModelBuilderExtensions.HasPostgresExtension(modelBuilder, "btree_gist");
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
             modelBuilder.Entity("CampusVenue.Api.Modules.Facilities.Domain.Venue", b =>
@@ -496,6 +498,102 @@ namespace CampusVenue.Api.Migrations
                     b.ToTable("booking_notifications", (string)null);
                 });
 
+            modelBuilder.Entity("CampusVenue.Api.Modules.Reservations.Domain.ConfirmedReservation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("BookingRequestId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("booking_request_id");
+
+                    b.Property<int>("CleanupMinutes")
+                        .HasColumnType("integer")
+                        .HasColumnName("cleanup_minutes");
+
+                    b.Property<DateTime>("ConfirmedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("confirmed_at_utc");
+
+                    b.Property<Guid>("ConfirmedByUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("confirmed_by_user_id");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at_utc");
+
+                    b.Property<DateTime>("EventEndUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("event_end_utc");
+
+                    b.Property<DateTime>("EventStartUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("event_start_utc");
+
+                    b.Property<string>("EventTitle")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("event_title");
+
+                    b.Property<DateTime>("OccupiedEndUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("occupied_end_utc");
+
+                    b.Property<NpgsqlRange<DateTime>>("OccupiedRange")
+                        .HasColumnType("tstzrange")
+                        .HasColumnName("occupied_range");
+
+                    b.Property<DateTime>("OccupiedStartUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("occupied_start_utc");
+
+                    b.Property<string>("ReservationReference")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("reservation_reference");
+
+                    b.Property<int>("SetupMinutes")
+                        .HasColumnType("integer")
+                        .HasColumnName("setup_minutes");
+
+                    b.Property<Guid>("VenueId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("venue_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_confirmed_reservations");
+
+                    b.HasIndex("BookingRequestId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_confirmed_reservations_booking_request_id");
+
+                    b.HasIndex("ConfirmedByUserId");
+
+                    b.HasIndex("ReservationReference")
+                        .IsUnique()
+                        .HasDatabaseName("ix_confirmed_reservations_reservation_reference");
+
+                    b.HasIndex("VenueId")
+                        .HasDatabaseName("ix_confirmed_reservations_venue_id");
+
+                    b.HasIndex("VenueId", "OccupiedStartUtc", "OccupiedEndUtc")
+                        .HasDatabaseName("ix_confirmed_reservations_venue_occupied_dates");
+
+                    b.ToTable("confirmed_reservations", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_confirmed_reservations_buffers", "setup_minutes >= 0 AND cleanup_minutes >= 0");
+
+                            t.HasCheckConstraint("ck_confirmed_reservations_dates", "event_end_utc > event_start_utc");
+
+                            t.HasCheckConstraint("ck_confirmed_reservations_occupied_dates", "occupied_end_utc > occupied_start_utc");
+                        });
+                });
+
             modelBuilder.Entity("CampusVenue.Api.Modules.Reservations.Domain.VenueBookingRequest", b =>
                 {
                     b.Property<Guid>("Id")
@@ -841,6 +939,36 @@ namespace CampusVenue.Api.Migrations
                     b.Navigation("RecipientUser");
                 });
 
+            modelBuilder.Entity("CampusVenue.Api.Modules.Reservations.Domain.ConfirmedReservation", b =>
+                {
+                    b.HasOne("CampusVenue.Api.Modules.Reservations.Domain.VenueBookingRequest", "BookingRequest")
+                        .WithOne("ConfirmedReservation")
+                        .HasForeignKey("CampusVenue.Api.Modules.Reservations.Domain.ConfirmedReservation", "BookingRequestId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_confirmed_reservations_venue_booking_requests_booking_request_id");
+
+                    b.HasOne("CampusVenue.Api.Modules.Identity.Domain.ApplicationUser", "ConfirmedByUser")
+                        .WithMany()
+                        .HasForeignKey("ConfirmedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_confirmed_reservations_users_confirmed_by_user_id");
+
+                    b.HasOne("CampusVenue.Api.Modules.Facilities.Domain.Venue", "Venue")
+                        .WithMany()
+                        .HasForeignKey("VenueId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_confirmed_reservations_venues_venue_id");
+
+                    b.Navigation("BookingRequest");
+
+                    b.Navigation("ConfirmedByUser");
+
+                    b.Navigation("Venue");
+                });
+
             modelBuilder.Entity("CampusVenue.Api.Modules.Reservations.Domain.VenueBookingRequest", b =>
                 {
                     b.HasOne("CampusVenue.Api.Modules.Identity.Domain.ApplicationUser", "Requester")
@@ -932,6 +1060,8 @@ namespace CampusVenue.Api.Migrations
 
             modelBuilder.Entity("CampusVenue.Api.Modules.Reservations.Domain.VenueBookingRequest", b =>
                 {
+                    b.Navigation("ConfirmedReservation");
+
                     b.Navigation("Notifications");
                 });
 #pragma warning restore 612, 618

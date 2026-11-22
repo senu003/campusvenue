@@ -543,3 +543,52 @@ export async function assignVenueManager(
 
   return response.json();
 }
+
+export async function confirmBookingRequest(requestId: string): Promise<BookingRequestDto> {
+  let token = getCachedAntiforgeryToken();
+  if (!token) {
+    token = await fetchAntiforgeryToken();
+  }
+
+  const response = await fetch(`/api/booking-requests/${requestId}/confirm`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+      'X-XSRF-TOKEN': token,
+    },
+    credentials: 'include',
+  });
+
+  if (response.status === 401) {
+    throw new VenueAuthError();
+  }
+
+  if (response.status === 403) {
+    const errorData = await response.json().catch(() => null);
+    const detail = (errorData && typeof errorData === 'object' && 'detail' in errorData && typeof errorData.detail === 'string')
+      ? errorData.detail
+      : 'You are not authorized to confirm this booking request.';
+    throw new VenueForbiddenError(detail);
+  }
+
+  if (response.status === 409) {
+    const errorData = await response.json().catch(() => null);
+    const detail = (errorData && typeof errorData === 'object' && 'detail' in errorData && typeof errorData.detail === 'string')
+      ? errorData.detail
+      : 'The venue is no longer available for the requested time. The request remains awaiting confirmation.';
+    throw new Error(detail);
+  }
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => null);
+    const detail = (errorData && typeof errorData === 'object' && 'detail' in errorData && typeof errorData.detail === 'string')
+      ? errorData.detail
+      : (errorData && typeof errorData === 'object' && 'message' in errorData && typeof errorData.message === 'string')
+      ? errorData.message
+      : `Failed to confirm booking request (HTTP ${response.status})`;
+    throw new Error(detail);
+  }
+
+  return response.json();
+}
