@@ -23,6 +23,7 @@ import {
   updateVenueRules,
   assignVenueManager,
 } from './api';
+import { ConfirmBookingAction } from './ConfirmBookingAction';
 import { fetchUserDirectory } from '../users/api';
 import type { UserDirectoryItem } from '../users/types';
 import { useAuth } from '../auth/useAuth';
@@ -1211,6 +1212,8 @@ export const VenuesScreen: React.FC = () => {
                                   : req.status === 'ApprovedWithConditions'
                                   ? 'bg-purple-100 text-purple-800'
                                   : req.status === 'AwaitingConfirmation'
+                                  ? 'bg-blue-100 text-blue-800'
+                                  : req.status === 'Confirmed'
                                   ? 'bg-emerald-100 text-emerald-800'
                                   : req.status === 'Rejected'
                                   ? 'bg-red-100 text-red-800'
@@ -1219,7 +1222,8 @@ export const VenuesScreen: React.FC = () => {
                             >
                               {req.status === 'PendingReview' && 'Pending Manager Review'}
                               {req.status === 'ApprovedWithConditions' && 'Conditions Pending Acceptance'}
-                              {req.status === 'AwaitingConfirmation' && 'Awaiting Booking Confirmation'}
+                              {req.status === 'AwaitingConfirmation' && 'Awaiting Confirmation'}
+                              {req.status === 'Confirmed' && 'Confirmed Reservation'}
                               {req.status === 'Rejected' && 'Rejected'}
                               {req.status === 'Cancelled' && 'Cancelled'}
                             </span>
@@ -1290,13 +1294,65 @@ export const VenuesScreen: React.FC = () => {
                         </div>
                       )}
 
-                      {/* AWAITING CONFIRMATION BANNER */}
+                      {/* AWAITING CONFIRMATION ACTION BOX */}
                       {req.status === 'AwaitingConfirmation' && (
-                        <div className="p-3 bg-emerald-50 border border-emerald-200 rounded text-emerald-800 flex items-center gap-2">
-                          <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
-                          <span>
-                            Request approved by venue custodian. Awaiting final double-booking verification and reservation confirmation in Phase 1C.3.
-                          </span>
+                        <ConfirmBookingAction
+                          bookingRequest={req}
+                          onConfirmed={async (confirmed) => {
+                            setActionSuccess(
+                              `Booking officially confirmed! Reservation Reference: ${confirmed.reservationReference || 'Confirmed'}. The venue is now reserved on the campus calendar.`
+                            );
+                            setMyRequestsError(null);
+                            await refreshMyRequests();
+                          }}
+                          onError={(errMsg) => {
+                            setMyRequestsError(errMsg);
+                            setActionSuccess(null);
+                          }}
+                        />
+                      )}
+
+                      {/* CONFIRMED RESERVATION PANEL */}
+                      {req.status === 'Confirmed' && (
+                        <div className="p-4 bg-emerald-50/80 border border-emerald-200 rounded-lg space-y-2">
+                          <div className="flex items-center justify-between gap-2 flex-wrap">
+                            <div className="flex items-center gap-2 text-emerald-900 font-bold text-xs sm:text-sm">
+                              <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+                              <span>Confirmed Venue Reservation</span>
+                            </div>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              {req.confirmedReservationId && (
+                                <span
+                                  data-testid="confirmed-reservation-id"
+                                  data-reservation-id={req.confirmedReservationId}
+                                  className="text-[11px] font-mono text-emerald-900 bg-white border border-emerald-300 px-2 py-0.5 rounded shadow-xs"
+                                  title={`Confirmed Reservation ID for event creation: ${req.confirmedReservationId}`}
+                                >
+                                  Reservation ID: {req.confirmedReservationId}
+                                </span>
+                              )}
+                              {req.reservationReference && (
+                                <span className="font-mono text-xs font-bold bg-emerald-100 text-emerald-900 border border-emerald-300 px-2.5 py-1 rounded">
+                                  Ref: {req.reservationReference}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          <div className="text-[11px] text-emerald-800 space-y-1">
+                            <p>
+                              This reservation is legally confirmed and officially blocked on the campus calendar.
+                            </p>
+                            {req.confirmedReservationId && (
+                              <p className="text-emerald-700 text-[10px]">
+                                Ready for event creation: Use Reservation ID <span className="font-mono font-medium">{req.confirmedReservationId}</span> to associate your event.
+                              </p>
+                            )}
+                            {req.confirmedAtUtc && (
+                              <p className="text-gray-500 text-[10px]">
+                                Confirmed on {new Date(req.confirmedAtUtc).toLocaleString()} UTC
+                              </p>
+                            )}
+                          </div>
                         </div>
                       )}
 
@@ -1378,10 +1434,14 @@ export const VenuesScreen: React.FC = () => {
                                     ? 'bg-amber-100 text-amber-800'
                                     : req.status === 'ApprovedWithConditions'
                                     ? 'bg-purple-100 text-purple-800'
-                                    : 'bg-emerald-100 text-emerald-800'
+                                    : req.status === 'AwaitingConfirmation'
+                                    ? 'bg-blue-100 text-blue-800'
+                                    : req.status === 'Confirmed'
+                                    ? 'bg-emerald-100 text-emerald-800'
+                                    : 'bg-gray-100 text-gray-700'
                                 }`}
                               >
-                                {req.status}
+                                {req.status === 'Confirmed' && req.reservationReference ? `Confirmed (${req.reservationReference})` : req.status}
                               </span>
                             </div>
                             <p className="text-gray-500 text-[11px] mt-0.5">

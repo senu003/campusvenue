@@ -25,10 +25,14 @@ public class CampusVenueDbContext : IdentityDbContext<ApplicationUser, Applicati
     public DbSet<VenueCalendarBlock> VenueCalendarBlocks => Set<VenueCalendarBlock>();
     public DbSet<VenueBookingRequest> VenueBookingRequests => Set<VenueBookingRequest>();
     public DbSet<BookingNotification> BookingNotifications => Set<BookingNotification>();
+    public DbSet<ConfirmedReservation> ConfirmedReservations => Set<ConfirmedReservation>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
+
+        // PostgreSQL btree_gist extension for GiST exclusion constraints on temporal ranges
+        modelBuilder.HasPostgresExtension("btree_gist");
 
         // Map ASP.NET Core Identity tables to snake_case plural names
         modelBuilder.Entity<ApplicationUser>(b =>
@@ -343,6 +347,56 @@ public class CampusVenueDbContext : IdentityDbContext<ApplicationUser, Applicati
 
             b.HasIndex(n => n.BookingRequestId).HasDatabaseName("ix_booking_notifications_booking_request_id");
             b.HasIndex(n => n.RecipientUserId).HasDatabaseName("ix_booking_notifications_recipient_user_id");
+        });
+
+        modelBuilder.Entity<ConfirmedReservation>(b =>
+        {
+            b.ToTable("confirmed_reservations", t =>
+            {
+                t.HasCheckConstraint("ck_confirmed_reservations_dates", "event_end_utc > event_start_utc");
+                t.HasCheckConstraint("ck_confirmed_reservations_occupied_dates", "occupied_end_utc > occupied_start_utc");
+                t.HasCheckConstraint("ck_confirmed_reservations_buffers", "setup_minutes >= 0 AND cleanup_minutes >= 0");
+            });
+
+            b.HasKey(r => r.Id).HasName("pk_confirmed_reservations");
+            b.Property(r => r.Id).HasColumnName("id");
+            b.Property(r => r.BookingRequestId).HasColumnName("booking_request_id").IsRequired();
+            b.Property(r => r.VenueId).HasColumnName("venue_id").IsRequired();
+            b.Property(r => r.ReservationReference).HasColumnName("reservation_reference").HasMaxLength(50).IsRequired();
+            b.Property(r => r.EventTitle).HasColumnName("event_title").HasMaxLength(200).IsRequired();
+            b.Property(r => r.EventStartUtc).HasColumnName("event_start_utc").HasColumnType("timestamp with time zone").IsRequired();
+            b.Property(r => r.EventEndUtc).HasColumnName("event_end_utc").HasColumnType("timestamp with time zone").IsRequired();
+            b.Property(r => r.SetupMinutes).HasColumnName("setup_minutes").IsRequired();
+            b.Property(r => r.CleanupMinutes).HasColumnName("cleanup_minutes").IsRequired();
+            b.Property(r => r.OccupiedStartUtc).HasColumnName("occupied_start_utc").HasColumnType("timestamp with time zone").IsRequired();
+            b.Property(r => r.OccupiedEndUtc).HasColumnName("occupied_end_utc").HasColumnType("timestamp with time zone").IsRequired();
+            b.Property(r => r.OccupiedRange).HasColumnName("occupied_range").HasColumnType("tstzrange").IsRequired();
+            b.Property(r => r.ConfirmedByUserId).HasColumnName("confirmed_by_user_id").IsRequired();
+            b.Property(r => r.ConfirmedAtUtc).HasColumnName("confirmed_at_utc").HasColumnType("timestamp with time zone").IsRequired();
+            b.Property(r => r.CreatedAtUtc).HasColumnName("created_at_utc").HasColumnType("timestamp with time zone").IsRequired();
+
+            b.HasOne(r => r.BookingRequest)
+                .WithOne(br => br.ConfirmedReservation)
+                .HasForeignKey<ConfirmedReservation>(r => r.BookingRequestId)
+                .HasConstraintName("fk_confirmed_reservations_venue_booking_requests_booking_request_id")
+                .OnDelete(DeleteBehavior.Restrict);
+
+            b.HasOne(r => r.Venue)
+                .WithMany()
+                .HasForeignKey(r => r.VenueId)
+                .HasConstraintName("fk_confirmed_reservations_venues_venue_id")
+                .OnDelete(DeleteBehavior.Restrict);
+
+            b.HasOne(r => r.ConfirmedByUser)
+                .WithMany()
+                .HasForeignKey(r => r.ConfirmedByUserId)
+                .HasConstraintName("fk_confirmed_reservations_users_confirmed_by_user_id")
+                .OnDelete(DeleteBehavior.Restrict);
+
+            b.HasIndex(r => r.BookingRequestId).IsUnique().HasDatabaseName("ix_confirmed_reservations_booking_request_id");
+            b.HasIndex(r => r.ReservationReference).IsUnique().HasDatabaseName("ix_confirmed_reservations_reservation_reference");
+            b.HasIndex(r => r.VenueId).HasDatabaseName("ix_confirmed_reservations_venue_id");
+            b.HasIndex(r => new { r.VenueId, r.OccupiedStartUtc, r.OccupiedEndUtc }).HasDatabaseName("ix_confirmed_reservations_venue_occupied_dates");
         });
 
         // Apply entity configurations from all module assemblies

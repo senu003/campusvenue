@@ -128,6 +128,7 @@ export type BookingRequestStatusType =
   | 'PendingReview'
   | 'ApprovedWithConditions'
   | 'AwaitingConfirmation'
+  | 'Confirmed'
   | 'Rejected'
   | 'Cancelled';
 
@@ -168,6 +169,9 @@ export interface BookingRequestDto {
   createdAtUtc: string;
   updatedAtUtc: string;
   notifications: BookingNotificationDto[];
+  reservationReference?: string | null;
+  confirmedReservationId?: string | null;
+  confirmedAtUtc?: string | null;
 }
 
 export interface CreateBookingRequestPayload {

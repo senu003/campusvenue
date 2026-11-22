@@ -25,7 +25,10 @@ public record BookingRequestDto(
     string? IdempotencyKey,
     DateTime CreatedAtUtc,
     DateTime UpdatedAtUtc,
-    IReadOnlyList<BookingNotificationDto> Notifications
+    IReadOnlyList<BookingNotificationDto> Notifications,
+    string? ReservationReference = null,
+    Guid? ConfirmedReservationId = null,
+    DateTime? ConfirmedAtUtc = null
 );
 
 public record BookingNotificationDto(

@@ -18,8 +18,8 @@ This document defines the complete multi-phase roadmap for CampusVenue, from Pha
 | **Phase 1B.1** | **Administrator User Directory** | **Completed & Verified** | Institutional role definitions (`UniversityAdmin`, `FacilityAdmin`, `EventCoordinator`, `Participant`), operator-only elevation, paginated directory API, MFA session policy enforcement |
 | **Phase 1B.2** | **Staff Role Assignment** | **Completed & Verified** | Audited staff role assignment (`FacilityAdmin`, `EventCoordinator`), transactional audit trail, concurrency conflict detection, old session invalidation |
 | **Phase 1C.1** | **Venue Catalog & Verified Availability** | **Completed & Verified** | Admin venue catalog (central & departmental), verified calendar coverages, scoped blockouts, temporal availability engine with buffer collision isolation |
-| **Phase 1C.2** | Space Requests & Approvals Workflow | *Planned* | Eligible slot booking request submission, venue & welfare approver state machines, transactional outbox email delivery |
-| **Phase 1C.3** | Booking Confirmation & PostgreSQL Overlap Constraints | *Planned* | Coordinator approval conditions acceptance, PostgreSQL btree_gist exclusion constraints for zero double-booking |
+| **Phase 1C.2** | **Space Requests & Approvals Workflow** | **Completed & Verified** | Eligible slot booking request submission, venue & welfare approver state machines, transactional outbox email delivery |
+| **Phase 1C.3** | **Booking Confirmation & PostgreSQL Overlap Constraints** | **Completed & Verified** | Coordinator approval conditions acceptance, PostgreSQL btree_gist exclusion constraints for zero double-booking |
 | **Phase 2** | Buildings & Reservable Spaces | *Planned* | Space catalog, capacities, audio-visual equipment, accessibility tags, photo galleries |
 | **Phase 3** | Availability Calendar & Constraints | *Planned* | Timetable blockouts, setup/teardown buffers, maintenance windows, interval math |
 | **Phase 4** | Coordinator Space Requests & Approvals | *Planned* | Reservation workflows, approval state machine, notifications, conflict prevention |
@@ -224,12 +224,23 @@ This document defines the complete multi-phase roadmap for CampusVenue, from Pha
     - "Venue Rules & Policies" editor tab in calendar management for authorized staff.
   - **Tests**: 128 backend integration tests in `CampusVenue.Tests` (9 dedicated `BookingRequestIntegrationTests`), 46 frontend Vitest tests.
 
-##### Phase 1C.3: Booking Confirmation & PostgreSQL Overlap Constraints (Planned)
-- **Business Objective**: Atomically confirm bookings upon approval acceptance, enforcing database-level temporal exclusion constraints (`EXCLUDE USING gist`) to guarantee zero double-bookings under concurrent load.
+##### Phase 1C.3: Booking Confirmation & PostgreSQL Overlap Constraints (Completed & Verified)
+- **Business Objective**: Enable event coordinators (or university administrators) to confirm approved booking requests from the requests screen, rechecking full occupied availability, enforcing database-level temporal exclusion constraints (`EXCLUDE USING gist`) in PostgreSQL to guarantee hardware-level double-booking prevention under concurrent transaction load, persisting the reservation, status, and notifications atomically, and supporting idempotent retries.
 - **Vertical Slice Scope**:
-  - `confirmed_reservations` PostgreSQL table with `tstzrange` exclusion constraints.
-  - ACID transaction rechecking coverage and locking the interval prior to confirmation.
-  - Handoff from confirmed reservation to event creation.
+  - **Backend**:
+    - `ConfirmedReservation` domain entity and table `confirmed_reservations` with `tstzrange` column `occupied_range`.
+    - PostgreSQL `btree_gist` extension and temporal exclusion constraint `ex_confirmed_reservations_venue_occupied_range` (`EXCLUDE USING gist (venue_id WITH =, occupied_range WITH &&)`).
+    - Half-open interval definition `[OccupiedStartUtc, OccupiedEndUtc)` allowing back-to-back adjacent bookings where one begins exactly when the previous occupied range ends.
+    - Extended `AvailabilityService` to check `ConfirmedReservations` for direct event overlaps and setup/cleanup buffer overlaps, reporting rich conflict details and referencing existing reservation codes.
+    - Pessimistic row locking (`SELECT id FROM venues WHERE id = @id FOR UPDATE`) on calendar block modifications (`AddCalendarBlock`, `DeleteCalendarBlock`) and booking confirmations (`ConfirmBookingRequest`) inside serializable transactions to prevent stale calendar checks.
+    - Confirmation endpoint `POST /api/booking-requests/{id}/confirm` enforcing server-side ownership authorization (`RequesterId == currentUserId` or `UniversityAdminWithMfa`), status invariant (`AwaitingConfirmation`), atomic persistence with execution strategy, and idempotent retries for already confirmed requests without creating duplicate records.
+    - Forward-only EF Core migration `20261122135149_AddConfirmedReservationsAndExclusionConstraint`.
+  - **Frontend**:
+    - "My Requests" tab displays "Confirm Booking" action button on approved requests in `AwaitingConfirmation` status.
+    - Real-time loading spinner and conflict banner if the venue slot becomes unavailable during review.
+    - Confirmed reservations render a dedicated emerald card with prominent Reservation Reference (`Ref: RES-YYYYMMDD-XXXXXX`), confirmed timestamp, and active status badge.
+    - "Review Queue" tab displays confirmed reservation reference badges.
+  - **Tests**: 136 backend integration tests in `CampusVenue.Tests` (17 dedicated booking tests covering direct PostgreSQL exclusion constraint rejection, successful confirmation, post-approval calendar blocks, overlapping buffers, adjacent occupied ranges, unauthorized caller rejection, simultaneous concurrency conflicts with losing request preservation, and idempotent retries), 55 frontend Vitest tests.
 
 ---
 

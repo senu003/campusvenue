@@ -233,7 +233,66 @@ public class AvailabilityService
             );
         }
 
-        // 6. Slot is Verified & Available
+        // 6. Confirmed Reservations Overlap Check
+        var conflictingReservation = await dbContext.ConfirmedReservations
+            .Where(r => r.VenueId == venue.Id &&
+                        r.OccupiedStartUtc < occupiedEndUtc &&
+                        r.OccupiedEndUtc > occupiedStartUtc)
+            .OrderBy(r => r.OccupiedStartUtc)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (conflictingReservation != null)
+        {
+            bool directEventOverlap = conflictingReservation.EventStartUtc < eventEndUtc && conflictingReservation.EventEndUtc > eventStartUtc;
+            bool isBufferOnly = !directEventOverlap;
+            string conflictScope;
+            string reason;
+
+            if (directEventOverlap)
+            {
+                conflictScope = "Event";
+                reason = $"Conflict detected: Venue is already booked for '{conflictingReservation.EventTitle}' (Ref: {conflictingReservation.ReservationReference}) from {conflictingReservation.EventStartUtc:yyyy-MM-dd HH:mm} to {conflictingReservation.EventEndUtc:yyyy-MM-dd HH:mm} UTC.";
+            }
+            else if (conflictingReservation.OccupiedEndUtc > occupiedStartUtc && conflictingReservation.OccupiedStartUtc < eventStartUtc)
+            {
+                conflictScope = "SetupBuffer";
+                reason = $"Conflict detected with setup buffer: Confirmed reservation '{conflictingReservation.EventTitle}' (Ref: {conflictingReservation.ReservationReference}, occupied until {conflictingReservation.OccupiedEndUtc:yyyy-MM-dd HH:mm} UTC) overlaps with the required {setupMinutes}-minute setup buffer ({occupiedStartUtc:HH:mm} - {eventStartUtc:HH:mm} UTC).";
+            }
+            else
+            {
+                conflictScope = "CleanupBuffer";
+                reason = $"Conflict detected with cleanup buffer: Confirmed reservation '{conflictingReservation.EventTitle}' (Ref: {conflictingReservation.ReservationReference}, occupied from {conflictingReservation.OccupiedStartUtc:yyyy-MM-dd HH:mm} UTC) overlaps with the required {cleanupMinutes}-minute cleanup buffer ({eventEndUtc:HH:mm} - {occupiedEndUtc:HH:mm} UTC).";
+            }
+
+            var conflictDto = new ConflictDetailsDto(
+                conflictingReservation.Id,
+                conflictingReservation.EventTitle,
+                "ConfirmedReservation",
+                conflictingReservation.EventStartUtc,
+                conflictingReservation.EventEndUtc,
+                isBufferOnly,
+                conflictScope
+            );
+
+            return new CheckAvailabilityResponse(
+                venue.Id,
+                venue.Name,
+                venue.Code,
+                AvailabilityStatus.Unavailable,
+                reason,
+                false,
+                eventStartUtc,
+                eventEndUtc,
+                occupiedStartUtc,
+                occupiedEndUtc,
+                setupMinutes,
+                cleanupMinutes,
+                conflictDto,
+                coverageDto
+            );
+        }
+
+        // 7. Slot is Verified & Available
         return new CheckAvailabilityResponse(
             venue.Id,
             venue.Name,

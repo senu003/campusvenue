@@ -1,3 +1,4 @@
+using System.Data;
 using System.Security.Claims;
 using CampusVenue.Api.Common;
 using CampusVenue.Api.Infrastructure.Data;
@@ -7,6 +8,8 @@ using CampusVenue.Api.Modules.Identity.Domain;
 using CampusVenue.Api.Modules.Reservations.Domain;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
+using NpgsqlTypes;
 
 namespace CampusVenue.Api.Modules.Reservations.Features.BookingRequests;
 
@@ -99,6 +102,7 @@ public static class BookingRequestEndpoints
                     .Include(r => r.Venue)
                     .Include(r => r.Requester)
                     .Include(r => r.ReviewedByUser)
+                    .Include(r => r.ConfirmedReservation)
                     .Include(r => r.Notifications)
                     .FirstOrDefaultAsync(r => r.IdempotencyKey == request.IdempotencyKey.Trim() && r.RequesterId == currentUserId.Value);
 
@@ -248,6 +252,7 @@ public static class BookingRequestEndpoints
                 .Include(r => r.Venue)
                 .Include(r => r.Requester)
                 .Include(r => r.ReviewedByUser)
+                .Include(r => r.ConfirmedReservation)
                 .Include(r => r.Notifications)
                 .Where(r => r.RequesterId == currentUserId.Value)
                 .OrderByDescending(r => r.CreatedAtUtc)
@@ -291,6 +296,7 @@ public static class BookingRequestEndpoints
                 .Include(r => r.Venue)
                 .Include(r => r.Requester)
                 .Include(r => r.ReviewedByUser)
+                .Include(r => r.ConfirmedReservation)
                 .Include(r => r.Notifications)
                 .AsNoTracking();
 
@@ -336,6 +342,7 @@ public static class BookingRequestEndpoints
                 .Include(r => r.Venue)
                 .Include(r => r.Requester)
                 .Include(r => r.ReviewedByUser)
+                .Include(r => r.ConfirmedReservation)
                 .Include(r => r.Notifications)
                 .Where(r => r.VenueId == venueId)
                 .OrderByDescending(r => r.CreatedAtUtc)
@@ -367,6 +374,7 @@ public static class BookingRequestEndpoints
             var bookingRequest = await dbContext.VenueBookingRequests
                 .Include(r => r.Venue)
                 .Include(r => r.Requester)
+                .Include(r => r.ConfirmedReservation)
                 .Include(r => r.Notifications)
                 .FirstOrDefaultAsync(r => r.Id == id);
 
@@ -546,6 +554,7 @@ public static class BookingRequestEndpoints
                 .Include(r => r.Venue)
                 .Include(r => r.Requester)
                 .Include(r => r.ReviewedByUser)
+                .Include(r => r.ConfirmedReservation)
                 .Include(r => r.Notifications)
                 .FirstOrDefaultAsync(r => r.Id == id);
 
@@ -671,6 +680,76 @@ public static class BookingRequestEndpoints
         .Produces(StatusCodes.Status403Forbidden)
         .Produces(StatusCodes.Status404NotFound);
 
+        // 7. Final Booking Confirmation (Role: EventCoordinator who owns request or UniversityAdmin with MFA)
+        group.MapPost("/booking-requests/{id:guid}/confirm", async (
+            Guid id,
+            CampusVenueDbContext dbContext,
+            BookingConfirmationService confirmationService,
+            IAuthorizationService authorizationService,
+            HttpContext httpContext,
+            CancellationToken cancellationToken) =>
+        {
+            var user = httpContext.User;
+            var currentUserId = GetCurrentUserId(user);
+            if (!currentUserId.HasValue)
+            {
+                return Results.Unauthorized();
+            }
+
+            var bookingRequest = await dbContext.VenueBookingRequests
+                .AsNoTracking()
+                .FirstOrDefaultAsync(r => r.Id == id, cancellationToken);
+
+            if (bookingRequest == null)
+            {
+                return Results.NotFound(new { message = $"Booking request with ID '{id}' was not found." });
+            }
+
+            if (!await CanConfirmRequestAsync(user, bookingRequest, authorizationService))
+            {
+                return Results.Problem(
+                    statusCode: StatusCodes.Status403Forbidden,
+                    title: "Forbidden",
+                    detail: "Only the coordinator who submitted this request (or university administrator) can confirm the booking."
+                );
+            }
+
+            var result = await confirmationService.ConfirmAsync(id, currentUserId.Value, cancellationToken);
+
+            return result.Status switch
+            {
+                BookingConfirmationStatus.Success => Results.Ok(MapToDto(result.BookingRequest!)),
+                BookingConfirmationStatus.NotFound => Results.NotFound(new { message = result.ErrorMessage }),
+                BookingConfirmationStatus.Forbidden => Results.Problem(
+                    statusCode: StatusCodes.Status403Forbidden,
+                    title: "Forbidden",
+                    detail: result.ErrorMessage
+                ),
+                BookingConfirmationStatus.InvalidStatus => Results.Problem(
+                    statusCode: StatusCodes.Status400BadRequest,
+                    title: "Bad Request",
+                    detail: result.ErrorMessage
+                ),
+                BookingConfirmationStatus.Conflict => Results.Problem(
+                    statusCode: StatusCodes.Status409Conflict,
+                    title: "Venue is no longer available",
+                    detail: result.ErrorMessage ?? "The venue is no longer available for the requested time. The request remains awaiting confirmation."
+                ),
+                _ => Results.Problem(
+                    statusCode: StatusCodes.Status500InternalServerError,
+                    title: "Confirmation Failed",
+                    detail: result.ErrorMessage ?? "An unexpected error occurred while confirming the booking request."
+                )
+            };
+        })
+        .WithName("ConfirmBookingRequest")
+        .WithSummary("Confirm an approved booking request, creating an immutable confirmed reservation and blocking the calendar")
+        .Produces<BookingRequestDto>(StatusCodes.Status200OK)
+        .Produces(StatusCodes.Status400BadRequest)
+        .Produces(StatusCodes.Status403Forbidden)
+        .Produces(StatusCodes.Status404NotFound)
+        .Produces(StatusCodes.Status409Conflict);
+
         return app;
     }
 
@@ -710,8 +789,28 @@ public static class BookingRequestEndpoints
                 n.Subject,
                 n.SentAtUtc,
                 n.CreatedAtUtc
-            )).ToList() ?? []
+            )).ToList() ?? [],
+            r.ConfirmedReservation?.ReservationReference,
+            r.ConfirmedReservation?.Id,
+            r.ConfirmedReservation?.ConfirmedAtUtc
         );
+    }
+
+    private static async Task<bool> CanConfirmRequestAsync(
+        ClaimsPrincipal user,
+        VenueBookingRequest request,
+        IAuthorizationService authorizationService)
+    {
+        var currentUserId = GetCurrentUserId(user);
+        if (!currentUserId.HasValue) return false;
+
+        if (request.RequesterId == currentUserId.Value)
+        {
+            return true;
+        }
+
+        var adminResult = await authorizationService.AuthorizeAsync(user, AuthorizationPolicies.UniversityAdminWithMfa);
+        return adminResult.Succeeded;
     }
 
     private static async Task<bool> CanManageVenueAsync(

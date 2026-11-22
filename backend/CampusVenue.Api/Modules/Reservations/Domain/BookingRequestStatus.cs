@@ -23,6 +23,11 @@ public static class BookingRequestStatus
     public const string AwaitingConfirmation = "AwaitingConfirmation";
 
     /// <summary>
+    /// Request confirmed by event coordinator. Confirmed reservation record created and calendar officially blocked.
+    /// </summary>
+    public const string Confirmed = "Confirmed";
+
+    /// <summary>
     /// Request rejected by facility manager with a mandatory reason.
     /// </summary>
     public const string Rejected = "Rejected";

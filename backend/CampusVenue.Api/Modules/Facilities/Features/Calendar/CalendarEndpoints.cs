@@ -218,6 +218,12 @@ public static class CalendarEndpoints
             if (currentUserId == null)
                 return Results.Unauthorized();
 
+            // Lock venue row to ensure concurrent confirmations cannot run on stale calendar data
+            await dbContext.Database.ExecuteSqlInterpolatedAsync(
+                $"SELECT id FROM venues WHERE id = {venueId} FOR UPDATE");
+
+            venue.UpdatedAtUtc = DateTime.UtcNow;
+
             var block = new VenueCalendarBlock
             {
                 Id = Guid.NewGuid(),
@@ -279,6 +285,16 @@ public static class CalendarEndpoints
                     title: "Forbidden",
                     detail: "You are not authorized to delete calendar blocks for this venue. Only assigned facility staff or university administrators can perform this action."
                 );
+            }
+
+            // Lock venue row to ensure concurrent confirmations cannot run on stale calendar data
+            await dbContext.Database.ExecuteSqlInterpolatedAsync(
+                $"SELECT id FROM venues WHERE id = {venueId} FOR UPDATE");
+
+            var venue = await dbContext.Venues.FindAsync(venueId);
+            if (venue != null)
+            {
+                venue.UpdatedAtUtc = DateTime.UtcNow;
             }
 
             dbContext.VenueCalendarBlocks.Remove(block);

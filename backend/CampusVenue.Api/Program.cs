@@ -234,6 +234,9 @@ builder.Services.AddSingleton<IEmailSender>(sp => sp.GetRequiredService<DevMailb
 // 14. Facilities & Availability Services
 builder.Services.AddScoped<AvailabilityService>();
 
+// 15. Reservations Services
+builder.Services.AddScoped<BookingConfirmationService>();
+
 var app = builder.Build();
 
 // Pipeline Configuration

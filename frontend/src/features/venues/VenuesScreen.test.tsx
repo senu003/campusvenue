@@ -696,4 +696,123 @@ describe('VenuesScreen Component Tests', () => {
     expect(screen.queryByRole('button', { name: /Calendar & Rules/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Assign Venue Manager/i })).not.toBeInTheDocument();
   });
+
+  it('renders "Awaiting Confirmation" request and allows coordinator to confirm booking with reference displayed', async () => {
+    const mockAwaitingReq: BookingRequestDto = {
+      id: 'req-awaiting-1',
+      venueId: 'venue-jg-hall',
+      venueName: 'Civil Auditorium (J.G. Hall)',
+      venueCode: 'JG-HALL',
+      requesterId: 'user-coord-1',
+      requesterEmail: 'coordinator@campus.internal',
+      requesterName: 'Coordinator',
+      eventTitle: 'Robotics Workshop 2026',
+      description: null,
+      expectedAttendance: 100,
+      eventStartUtc: '2026-11-28T04:30:00Z',
+      eventEndUtc: '2026-11-28T08:30:00Z',
+      setupMinutes: 45,
+      cleanupMinutes: 30,
+      status: 'AwaitingConfirmation',
+      reviewNotes: 'Approved by custodian',
+      conditions: null,
+      conditionsAccepted: null,
+      reviewedByUserId: 'mgr-1',
+      reviewedByEmail: 'manager@campus.internal',
+      reviewedAtUtc: '2026-11-22T02:00:00Z',
+      idempotencyKey: null,
+      createdAtUtc: '2026-11-22T00:00:00Z',
+      updatedAtUtc: '2026-11-22T02:00:00Z',
+      notifications: [],
+    };
+
+    const mockConfirmedReq: BookingRequestDto = {
+      ...mockAwaitingReq,
+      status: 'Confirmed',
+      reservationReference: 'RES-20261122-A1B2C3',
+      confirmedReservationId: 'res-1',
+      confirmedAtUtc: '2026-11-22T03:00:00Z',
+    };
+
+    vi.spyOn(api, 'fetchMyBookingRequests')
+      .mockResolvedValueOnce([mockAwaitingReq])
+      .mockResolvedValueOnce([mockConfirmedReq]);
+
+    const confirmSpy = vi.spyOn(api, 'confirmBookingRequest').mockResolvedValue(mockConfirmedReq);
+
+    render(<VenuesScreen />);
+
+    // Click My Requests tab
+    const myReqBtn = screen.getByRole('button', { name: /My Requests/i });
+    fireEvent.click(myReqBtn);
+
+    await waitFor(() => {
+      expect(screen.getByText('Robotics Workshop 2026')).toBeInTheDocument();
+      expect(screen.getByText(/Awaiting Confirmation/i)).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Confirm Booking/i })).toBeInTheDocument();
+    });
+
+    // Click Confirm Booking
+    fireEvent.click(screen.getByRole('button', { name: /Confirm Booking/i }));
+
+    await waitFor(() => {
+      expect(confirmSpy).toHaveBeenCalledWith('req-awaiting-1');
+      expect(screen.getByText(/Booking officially confirmed! Reservation Reference: RES-20261122-A1B2C3/i)).toBeInTheDocument();
+    });
+  });
+
+  it('renders conflict error and leaves request in AwaitingConfirmation when booking confirmation detects unavailability', async () => {
+    const mockAwaitingReq: BookingRequestDto = {
+      id: 'req-awaiting-conflict',
+      venueId: 'venue-jg-hall',
+      venueName: 'Civil Auditorium (J.G. Hall)',
+      venueCode: 'JG-HALL',
+      requesterId: 'user-coord-1',
+      requesterEmail: 'coordinator@campus.internal',
+      requesterName: 'Coordinator',
+      eventTitle: 'Debate Finals',
+      description: null,
+      expectedAttendance: 100,
+      eventStartUtc: '2026-11-28T04:30:00Z',
+      eventEndUtc: '2026-11-28T08:30:00Z',
+      setupMinutes: 45,
+      cleanupMinutes: 30,
+      status: 'AwaitingConfirmation',
+      reviewNotes: null,
+      conditions: null,
+      conditionsAccepted: null,
+      reviewedByUserId: 'mgr-1',
+      reviewedByEmail: 'manager@campus.internal',
+      reviewedAtUtc: '2026-11-22T02:00:00Z',
+      idempotencyKey: null,
+      createdAtUtc: '2026-11-22T00:00:00Z',
+      updatedAtUtc: '2026-11-22T02:00:00Z',
+      notifications: [],
+    };
+
+    vi.spyOn(api, 'fetchMyBookingRequests').mockResolvedValue([mockAwaitingReq]);
+    vi.spyOn(api, 'confirmBookingRequest').mockRejectedValue(
+      new Error('Conflict detected: Venue is already booked for another event.')
+    );
+
+    render(<VenuesScreen />);
+
+    // Click My Requests tab
+    fireEvent.click(screen.getByRole('button', { name: /My Requests/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Debate Finals')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Confirm Booking/i })).toBeInTheDocument();
+    });
+
+    // Click Confirm Booking
+    fireEvent.click(screen.getByRole('button', { name: /Confirm Booking/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/Conflict detected: Venue is already booked/i)).toBeInTheDocument();
+      // Must stay in AwaitingConfirmation!
+      expect(screen.getByText(/Awaiting Confirmation/i)).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Confirm Booking/i })).toBeInTheDocument();
+    });
+  });
 });
