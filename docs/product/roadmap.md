@@ -17,7 +17,9 @@ This document defines the complete multi-phase roadmap for CampusVenue, from Pha
 | **Phase 1A.6** | **Authenticator MFA & Recovery Codes** | **Completed & Verified** | TOTP authenticator enrollment, local SVG QR codes, 10 single-use recovery codes, short-lived 2FA challenge flow, secure regenerate/disable |
 | **Phase 1B.1** | **Administrator User Directory** | **Completed & Verified** | Institutional role definitions (`UniversityAdmin`, `FacilityAdmin`, `EventCoordinator`, `Participant`), operator-only elevation, paginated directory API, MFA session policy enforcement |
 | **Phase 1B.2** | **Staff Role Assignment** | **Completed & Verified** | Audited staff role assignment (`FacilityAdmin`, `EventCoordinator`), transactional audit trail, concurrency conflict detection, old session invalidation |
-| **Phase 1C** | University Organizations & Tenancy | *Planned* | Faculties, departments, student societies, coordinator membership assignment, organizational scoping |
+| **Phase 1C.1** | **Venue Catalog & Verified Availability** | **Completed & Verified** | Admin venue catalog (central & departmental), verified calendar coverages, scoped blockouts, temporal availability engine with buffer collision isolation |
+| **Phase 1C.2** | Space Requests & Approvals Workflow | *Planned* | Eligible slot booking request submission, venue & welfare approver state machines, transactional outbox email delivery |
+| **Phase 1C.3** | Booking Confirmation & PostgreSQL Overlap Constraints | *Planned* | Coordinator approval conditions acceptance, PostgreSQL btree_gist exclusion constraints for zero double-booking |
 | **Phase 2** | Buildings & Reservable Spaces | *Planned* | Space catalog, capacities, audio-visual equipment, accessibility tags, photo galleries |
 | **Phase 3** | Availability Calendar & Constraints | *Planned* | Timetable blockouts, setup/teardown buffers, maintenance windows, interval math |
 | **Phase 4** | Coordinator Space Requests & Approvals | *Planned* | Reservation workflows, approval state machine, notifications, conflict prevention |
@@ -179,14 +181,55 @@ This document defines the complete multi-phase roadmap for CampusVenue, from Pha
     - Role toggles for `FacilityAdmin` and `EventCoordinator`, change summary impact preview, confirmation, optimistic update, 409 conflict handling with auto-reload of current user state.
   - **Tests**: 104 backend integration tests in `CampusVenue.Tests` (12 dedicated StaffRoleAssignment tests), 37 frontend Vitest tests.
 
-#### Phase 1C: University Organizations & Tenancy
-- **Business Objective**: Model university faculties, academic departments, and student societies, assigning coordinators to specific organizational units.
+#### Phase 1C: Revised University Booking Pilot
+
+##### Phase 1C.1: Venue Catalog & Verified Availability (Completed & Verified)
+- **Business Objective**: Deliver a unified venue catalog supporting both central auditoriums and departmental spaces at the University of Moratuwa, backed by verified calendar coverages, scoped facility blockouts, and a temporal availability calculation engine that detects direct and buffer-only schedule conflicts.
 - **Vertical Slice Scope**:
-  - **Backend**: `Organizations` module: Organization CRUD, coordinator membership assignment (`POST /api/organizations/{id}/members`).
-  - **Frontend**: Organization directory list, organization creation form for University Administrators, coordinator picker.
-  - **Database**: Tables: `organizations`, `organization_memberships`.
-  - **Tests**: Hierarchy integrity tests, organization-scoped query tests.
-  - **Manual Verification**: Create "Department of Computer Science" under "Faculty of Engineering", assign a coordinator.
+  - **Backend**:
+    - `Facilities` module domain: `Venue`, `VenueManager`, `VenueCalendarCoverage`, `VenueCalendarBlock`.
+    - Catalog endpoints (`/api/venues`) protected by `UniversityAdminWithMfa` policy for create, update, and manager assignment.
+    - Verified calendar coverage & blockout endpoints (`/api/venues/{id}/calendar-coverages`, `/api/venues/{id}/calendar-blocks`) scoped to `UniversityAdminWithMfa` and assigned `FacilityAdmin` users.
+    - Temporal availability engine `POST /api/venues/{id}/check-availability` evaluating the full occupied interval `[Start - Setup, End + Cleanup]`, operating hours (UTC+05:30), advance notice, and coverage validity; returns `Available`, `Unavailable` (with explicit `isBufferConflictOnly` classification), or `Availability unverified`.
+    - Pre-seeded local demo venues: *Civil Auditorium (J.G. Hall)* (`JG-HALL`) and *Faculty of Business Room 101* (`FOB-101`).
+    - Forward-only EF Core migration `20261119130930_AddVenueCatalogAndVerifiedAvailability`.
+  - **Frontend**:
+    - Dedicated `frontend/src/features/venues/` slice (`VenuesScreen.tsx`, `api.ts`, `types.ts`).
+    - Interactive "Venues" catalog view with capacity and limit chips.
+    - Live availability checker drawer with dynamic buffer calculations, occupied interval breakdown, and rich visual status cards.
+    - Calendar management tab with role-scoped permissions for facility staff and administrators.
+  - **Tests**: 113 backend integration tests in `CampusVenue.Tests` (7 dedicated VenueAvailability tests), 42 frontend Vitest tests.
+
+##### Phase 1C.2: Space Requests & Approvals Workflow (Completed & Verified)
+- **Business Objective**: Enable event coordinators to submit booking requests for verified available slots, routing requests through assigned venue managers with a review queue, conditions negotiation, transactional outbox notifications, and segregation of duties.
+- **Delivered Capabilities**:
+  - **Backend**:
+    - `Reservations` module domain: `VenueBookingRequest`, `BookingNotification`, `BookingRequestStatus`.
+    - Extended `Venue` with `GeneralRules` (nullable text, max 4000) for general venue usage policies.
+    - Venue rules update endpoint (`PUT /api/venues/{id}/rules`) protected by `CanManageVenueRulesAsync` (`UniversityAdminWithMfa` or assigned `FacilityAdmin`).
+    - Booking request creation endpoint (`POST /api/venues/{venueId}/booking-requests`) rechecking full occupied interval `[Start - Setup, End + Cleanup]` via `AvailabilityService`. If `Unavailable` or `Availability unverified`, returns 400 Bad Request and creates zero requests and zero notifications.
+    - Orphan venue protection: requests for venues with 0 assigned managers are rejected with 400 Bad Request to guarantee no request goes unmonitored.
+    - Transactional notifications: requests and notification records are saved in a single atomic transaction wrapped in EF Core execution strategy, dispatching emails via `DevMailboxService`.
+    - Idempotency key protection: duplicate submissions with the same key return the existing request without duplicate records or extra emails.
+    - Manager review queue endpoints (`GET /api/booking-requests/review-queue`, `POST /api/booking-requests/{id}/review`) supporting `Approve`, `ApproveWithConditions`, and `Reject` (with reason).
+    - Strict Segregation of Duties: a user cannot review their own booking request (`requesterId != reviewerId`). Requests where a coordinator is also a venue manager require another authorized reviewer.
+    - Condition acceptance endpoint (`POST /api/booking-requests/{id}/respond-conditions`): coordinator can accept conditions (transitioning request to `AwaitingConfirmation`) or decline (transitioning request to `Cancelled`).
+    - Forward-only EF Core migration `20261122041732_AddBookingRequestsAndVenueReview`.
+  - **Frontend**:
+    - Extended `frontend/src/features/venues/` with tabs: `Catalog & Availability`, `My Requests`, `Review Queue`, `Calendar Management`.
+    - General rules display in venue cards and booking request submission modal with mandatory acknowledgment checkbox.
+    - Orphan venue warning banner disabling submission if no managers are assigned.
+    - "My Requests" tab with real-time status badges, conditional approval callouts, and "Accept Conditions" / "Decline & Cancel" action dialogs.
+    - "Review Queue" tab scoped to assigned venues (or all for MFA admin), with segregation-of-duties warning banner and disabled actions on self-requested slots.
+    - "Venue Rules & Policies" editor tab in calendar management for authorized staff.
+  - **Tests**: 128 backend integration tests in `CampusVenue.Tests` (9 dedicated `BookingRequestIntegrationTests`), 46 frontend Vitest tests.
+
+##### Phase 1C.3: Booking Confirmation & PostgreSQL Overlap Constraints (Planned)
+- **Business Objective**: Atomically confirm bookings upon approval acceptance, enforcing database-level temporal exclusion constraints (`EXCLUDE USING gist`) to guarantee zero double-bookings under concurrent load.
+- **Vertical Slice Scope**:
+  - `confirmed_reservations` PostgreSQL table with `tstzrange` exclusion constraints.
+  - ACID transaction rechecking coverage and locking the interval prior to confirmation.
+  - Handoff from confirmed reservation to event creation.
 
 ---
 

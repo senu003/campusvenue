@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using CampusVenue.Api.Common;
 using CampusVenue.Api.Infrastructure.Data;
 using CampusVenue.Api.Modules.Identity.Domain;
 using CampusVenue.Api.Modules.Identity.Features.Auth;
@@ -970,5 +971,321 @@ public class TwoFactorIntegrationTests : IClassFixture<TestWebApplicationFactory
         var lockedUser = await userManager.FindByIdAsync(user.Id.ToString());
         var isLocked = await userManager.IsLockedOutAsync(lockedUser!);
         isLocked.Should().BeTrue();
+    }
+
+    private async Task<ApplicationUser> EnsureUserWithRoleAsync(
+        string email,
+        string password,
+        string role = CampusRoles.Participant,
+        bool emailConfirmed = true)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+        var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<ApplicationRole>>();
+
+        if (!await roleManager.RoleExistsAsync(role))
+        {
+            await roleManager.CreateAsync(new ApplicationRole { Name = role });
+        }
+
+        var user = await userManager.FindByEmailAsync(email);
+        if (user != null)
+        {
+            user.EmailConfirmed = emailConfirmed;
+            await userManager.UpdateAsync(user);
+
+            if (!await userManager.IsInRoleAsync(user, role))
+            {
+                await userManager.AddToRoleAsync(user, role);
+            }
+
+            return user;
+        }
+
+        user = new ApplicationUser
+        {
+            Id = Guid.NewGuid(),
+            UserName = email,
+            Email = email,
+            EmailConfirmed = emailConfirmed,
+            CreatedAtUtc = DateTime.UtcNow
+        };
+
+        var result = await userManager.CreateAsync(user, password);
+        result.Succeeded.Should().BeTrue();
+
+        var addRoleResult = await userManager.AddToRoleAsync(user, role);
+        addRoleResult.Succeeded.Should().BeTrue();
+
+        return user;
+    }
+
+    // =========================================================================
+    // SecurityStampValidator & MFA Session Preservation Regression Tests
+    // =========================================================================
+
+    [Fact]
+    public async Task TwoFactor_AdminSession_MfaCompleted_ImmediatelyAfterChallenge_AndPreservedAfterSecurityStampRevalidation()
+    {
+        // Factory configured with ValidationInterval = Zero so security-stamp revalidation triggers on every request
+        var revalidatingFactory = _factory.WithWebHostBuilder(builder =>
+        {
+            builder.ConfigureServices(services =>
+            {
+                services.Configure<SecurityStampValidatorOptions>(options =>
+                {
+                    options.ValidationInterval = TimeSpan.Zero;
+                });
+            });
+        });
+
+        var email = $"admin_stamp_reval_{Guid.NewGuid():N}@campus.internal";
+        var password = "SecurePassword123!";
+        var user = await EnsureUserWithRoleAsync(email, password, CampusRoles.UniversityAdmin);
+
+        // Configure MFA directly on the user account
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+            var dbUser = await userManager.FindByIdAsync(user.Id.ToString());
+            await userManager.ResetAuthenticatorKeyAsync(dbUser!);
+            await userManager.SetTwoFactorEnabledAsync(dbUser!, true);
+        }
+
+        // Client performs login and completes 2FA challenge
+        var client = revalidatingFactory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = true, AllowAutoRedirect = false });
+        var (csrf1, _) = await GetAntiforgeryTokensAsync(client);
+        var loginReq = new HttpRequestMessage(HttpMethod.Post, "/api/auth/login")
+        {
+            Content = JsonContent.Create(new LoginRequest(email, password))
+        };
+        loginReq.Headers.Add("X-XSRF-TOKEN", csrf1);
+        var loginResp = await client.SendAsync(loginReq);
+        loginResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        var loginData = await loginResp.Content.ReadFromJsonAsync<LoginResponse>();
+        loginData!.RequiresTwoFactor.Should().BeTrue();
+
+        var challengeTotp = await GenerateTotpCodeAsync(user.Id);
+        var (csrf2, _) = await GetAntiforgeryTokensAsync(client);
+        var challengeReq = new HttpRequestMessage(HttpMethod.Post, "/api/auth/2fa/challenge")
+        {
+            Content = JsonContent.Create(new TwoFactorChallengeRequest(challengeTotp))
+        };
+        challengeReq.Headers.Add("X-XSRF-TOKEN", csrf2);
+        var challengeResp = await client.SendAsync(challengeReq);
+        challengeResp.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        // Step A: Immediately after challenge, /api/auth/me returns mfaCompleted = true
+        var immediateMeResp = await client.GetAsync("/api/auth/me");
+        immediateMeResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        var immediateMeData = await immediateMeResp.Content.ReadFromJsonAsync<CurrentUserResponse>();
+        immediateMeData.Should().NotBeNull();
+        immediateMeData!.IsAuthenticated.Should().BeTrue();
+        immediateMeData.TwoFactorEnabled.Should().BeTrue();
+        immediateMeData.MfaCompleted.Should().BeTrue();
+        immediateMeData.Roles.Should().Contain(CampusRoles.UniversityAdmin);
+
+        // Step B: Subsequent request with ValidationInterval = TimeSpan.Zero triggers SecurityStampValidator renewal
+        var renewedMeResp = await client.GetAsync("/api/auth/me");
+        renewedMeResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        var renewedMeData = await renewedMeResp.Content.ReadFromJsonAsync<CurrentUserResponse>();
+        renewedMeData.Should().NotBeNull();
+        renewedMeData!.IsAuthenticated.Should().BeTrue();
+        renewedMeData.TwoFactorEnabled.Should().BeTrue();
+        // Trusted amr=mfa claim is preserved by OnRefreshingPrincipal onto the new principal
+        renewedMeData.MfaCompleted.Should().BeTrue();
+        renewedMeData.Roles.Should().Contain(CampusRoles.UniversityAdmin);
+
+        // Step C: Access policy-protected endpoint requiring UniversityAdminWithMfa after cookie renewal
+        var userDirectoryResp = await client.GetAsync("/api/users");
+        userDirectoryResp.StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task TwoFactor_PasswordOnlySession_RemainsMfaIncomplete_BeforeAndAfterSecurityStampRevalidation()
+    {
+        var revalidatingFactory = _factory.WithWebHostBuilder(builder =>
+        {
+            builder.ConfigureServices(services =>
+            {
+                services.Configure<SecurityStampValidatorOptions>(options =>
+                {
+                    options.ValidationInterval = TimeSpan.Zero;
+                });
+            });
+        });
+
+        // User establishes password-only session (no MFA challenge completed)
+        var email = $"admin_password_only_{Guid.NewGuid():N}@campus.internal";
+        var password = "SecurePassword123!";
+        var user = await EnsureUserWithRoleAsync(email, password, CampusRoles.UniversityAdmin);
+
+        var client = revalidatingFactory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = true, AllowAutoRedirect = false });
+        var (csrf1, _) = await GetAntiforgeryTokensAsync(client);
+        var loginReq = new HttpRequestMessage(HttpMethod.Post, "/api/auth/login")
+        {
+            Content = JsonContent.Create(new LoginRequest(email, password))
+        };
+        loginReq.Headers.Add("X-XSRF-TOKEN", csrf1);
+        var loginResp = await client.SendAsync(loginReq);
+        loginResp.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        // Act & Assert 1: Before revalidation, password-only session has mfaCompleted = false
+        var meResp1 = await client.GetAsync("/api/auth/me");
+        meResp1.StatusCode.Should().Be(HttpStatusCode.OK);
+        var meData1 = await meResp1.Content.ReadFromJsonAsync<CurrentUserResponse>();
+        meData1!.MfaCompleted.Should().BeFalse();
+        meData1.Roles.Should().Contain(CampusRoles.UniversityAdmin);
+
+        // Act & Assert 2: After security-stamp revalidation, session MUST STAY mfaCompleted = false
+        // (Never mark a session MFA-complete solely because the account exists or revalidated)
+        var meResp2 = await client.GetAsync("/api/auth/me");
+        meResp2.StatusCode.Should().Be(HttpStatusCode.OK);
+        var meData2 = await meResp2.Content.ReadFromJsonAsync<CurrentUserResponse>();
+        meData2!.MfaCompleted.Should().BeFalse();
+        meData2.Roles.Should().Contain(CampusRoles.UniversityAdmin);
+
+        // Act & Assert 3: Protected endpoint requiring UniversityAdminWithMfa returns 403 Forbidden
+        var forbiddenResp = await client.GetAsync("/api/users");
+        forbiddenResp.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    [Fact]
+    public async Task TwoFactor_InvalidatedSecurityStamp_CookieRejectedWith401Unauthorized()
+    {
+        var revalidatingFactory = _factory.WithWebHostBuilder(builder =>
+        {
+            builder.ConfigureServices(services =>
+            {
+                services.Configure<SecurityStampValidatorOptions>(options =>
+                {
+                    options.ValidationInterval = TimeSpan.Zero;
+                });
+            });
+        });
+
+        var email = $"admin_invalid_stamp_{Guid.NewGuid():N}@campus.internal";
+        var password = "SecurePassword123!";
+        var user = await EnsureUserWithRoleAsync(email, password, CampusRoles.UniversityAdmin);
+
+        // Configure MFA directly on the user account
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+            var dbUser = await userManager.FindByIdAsync(user.Id.ToString());
+            await userManager.ResetAuthenticatorKeyAsync(dbUser!);
+            await userManager.SetTwoFactorEnabledAsync(dbUser!, true);
+        }
+
+        // Session completes 2FA challenge
+        var client = revalidatingFactory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = true, AllowAutoRedirect = false });
+        var (csrf1, _) = await GetAntiforgeryTokensAsync(client);
+        var loginReq = new HttpRequestMessage(HttpMethod.Post, "/api/auth/login")
+        {
+            Content = JsonContent.Create(new LoginRequest(email, password))
+        };
+        loginReq.Headers.Add("X-XSRF-TOKEN", csrf1);
+        var loginResp = await client.SendAsync(loginReq);
+        loginResp.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var challengeTotp = await GenerateTotpCodeAsync(user.Id);
+        var (csrf2, _) = await GetAntiforgeryTokensAsync(client);
+        var challengeReq = new HttpRequestMessage(HttpMethod.Post, "/api/auth/2fa/challenge")
+        {
+            Content = JsonContent.Create(new TwoFactorChallengeRequest(challengeTotp))
+        };
+        challengeReq.Headers.Add("X-XSRF-TOKEN", csrf2);
+        var challengeResp = await client.SendAsync(challengeReq);
+        challengeResp.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        // Verify valid session immediately
+        var validMe = await client.GetAsync("/api/auth/me");
+        validMe.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        // Invalidate security stamp in database (simulates password change, role update, or sign out everywhere)
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+            var dbUser = await userManager.FindByIdAsync(user.Id.ToString());
+            await userManager.UpdateSecurityStampAsync(dbUser!);
+        }
+
+        // Act: Make request with the invalidated cookie
+        var rejectedResp = await client.GetAsync("/api/auth/me");
+
+        // Assert: The session is rejected and returns 401 Unauthorized
+        rejectedResp.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task TwoFactor_MfaSession_RolesUpdatedInDatabase_RefreshesRolesWhilePreservingMfa()
+    {
+        var revalidatingFactory = _factory.WithWebHostBuilder(builder =>
+        {
+            builder.ConfigureServices(services =>
+            {
+                services.Configure<SecurityStampValidatorOptions>(options =>
+                {
+                    options.ValidationInterval = TimeSpan.Zero;
+                });
+            });
+        });
+
+        var email = $"admin_role_refresh_{Guid.NewGuid():N}@campus.internal";
+        var password = "SecurePassword123!";
+        var user = await EnsureUserWithRoleAsync(email, password, CampusRoles.UniversityAdmin);
+
+        // Configure MFA directly on the user account
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+            var dbUser = await userManager.FindByIdAsync(user.Id.ToString());
+            await userManager.ResetAuthenticatorKeyAsync(dbUser!);
+            await userManager.SetTwoFactorEnabledAsync(dbUser!, true);
+        }
+
+        // Session completes 2FA challenge
+        var client = revalidatingFactory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = true, AllowAutoRedirect = false });
+        var (csrf1, _) = await GetAntiforgeryTokensAsync(client);
+        var loginReq = new HttpRequestMessage(HttpMethod.Post, "/api/auth/login")
+        {
+            Content = JsonContent.Create(new LoginRequest(email, password))
+        };
+        loginReq.Headers.Add("X-XSRF-TOKEN", csrf1);
+        await client.SendAsync(loginReq);
+
+        var challengeTotp = await GenerateTotpCodeAsync(user.Id);
+        var (csrf2, _) = await GetAntiforgeryTokensAsync(client);
+        var challengeReq = new HttpRequestMessage(HttpMethod.Post, "/api/auth/2fa/challenge")
+        {
+            Content = JsonContent.Create(new TwoFactorChallengeRequest(challengeTotp))
+        };
+        challengeReq.Headers.Add("X-XSRF-TOKEN", csrf2);
+        var challengeResp = await client.SendAsync(challengeReq);
+        challengeResp.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        // Dynamically assign an additional role in the database without rotating stamp
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+            var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<ApplicationRole>>();
+            if (!await roleManager.RoleExistsAsync(CampusRoles.FacilityAdmin))
+            {
+                await roleManager.CreateAsync(new ApplicationRole { Name = CampusRoles.FacilityAdmin });
+            }
+            var dbUser = await userManager.FindByIdAsync(user.Id.ToString());
+            await userManager.AddToRoleAsync(dbUser!, CampusRoles.FacilityAdmin);
+        }
+
+        // Act: Call /api/auth/me triggering SecurityStampValidator revalidation
+        var meResp = await client.GetAsync("/api/auth/me");
+        meResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        var meData = await meResp.Content.ReadFromJsonAsync<CurrentUserResponse>();
+
+        // Assert: Both roles are loaded from refreshed principal, and amr=mfa is preserved
+        meData.Should().NotBeNull();
+        meData!.MfaCompleted.Should().BeTrue();
+        meData.Roles.Should().Contain(CampusRoles.UniversityAdmin);
+        meData.Roles.Should().Contain(CampusRoles.FacilityAdmin);
     }
 }

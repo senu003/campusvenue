@@ -30,8 +30,9 @@ import { ForgotPasswordForm } from './features/auth/ForgotPasswordForm';
 import { ResetPasswordForm } from './features/auth/ResetPasswordForm';
 import { DevMailbox } from './features/auth/DevMailbox';
 import { UsersScreen } from './features/users/UsersScreen';
+import { VenuesScreen } from './features/venues/VenuesScreen';
 
-type ActiveTab = 'overview' | 'auth' | 'mailbox' | 'users';
+type ActiveTab = 'overview' | 'auth' | 'mailbox' | 'users' | 'venues';
 type AuthSubView = 'login' | 'register' | 'confirmation-notice' | 'verify' | 'forgot-password' | 'reset-password';
 
 function parseInitialAuthParams(): {
@@ -85,6 +86,17 @@ function parseInitialAuthParams(): {
   if (tab === 'users') {
     return {
       activeTab: 'users',
+      authSubView: 'login',
+      verifyUserId: '',
+      verifyToken: '',
+      resetUserId: '',
+      resetToken: '',
+    };
+  }
+
+  if (tab === 'venues') {
+    return {
+      activeTab: 'venues',
       authSubView: 'login',
       verifyUserId: '',
       verifyToken: '',
@@ -324,6 +336,17 @@ const CampusVenueContent: React.FC = () => {
                 <Inbox className="w-3.5 h-3.5" />
                 <span>Dev Mailbox</span>
               </button>
+              <button
+                data-testid="nav-venues-tab"
+                onClick={() => setActiveTab('venues')}
+                className={`px-3 py-1.5 text-xs font-medium rounded-md transition cursor-pointer flex items-center space-x-1.5 ${activeTab === 'venues'
+                  ? 'bg-white text-indigo-700 shadow-xs font-semibold'
+                  : 'text-slate-600 hover:text-slate-900'
+                  }`}
+              >
+                <Building2 className="w-3.5 h-3.5 text-indigo-600" />
+                <span>Venues & Availability</span>
+              </button>
               {canAccessUsers && (
                 <button
                   data-testid="nav-users-tab"
@@ -396,6 +419,10 @@ const CampusVenueContent: React.FC = () => {
                 setActiveTab('auth');
               }}
             />
+          </section>
+        ) : activeTab === 'venues' ? (
+          <section aria-label="Venue Catalog & Verified Availability">
+            <VenuesScreen />
           </section>
         ) : activeTab === 'users' ? (
           <section aria-label="Institutional User Directory">

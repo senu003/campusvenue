@@ -1,9 +1,15 @@
+using System.Security.Claims;
 using System.Threading.RateLimiting;
 using CampusVenue.Api.Common;
 using CampusVenue.Api.Infrastructure.Data;
 using CampusVenue.Api.Infrastructure.Email;
 using CampusVenue.Api.Infrastructure.Health;
 using CampusVenue.Api.Infrastructure.Middleware;
+using CampusVenue.Api.Modules.Facilities.Features.Availability;
+using CampusVenue.Api.Modules.Facilities.Features.Calendar;
+using CampusVenue.Api.Modules.Facilities.Features.Venues;
+using CampusVenue.Api.Modules.Facilities.Services;
+using CampusVenue.Api.Modules.Reservations.Features.BookingRequests;
 using CampusVenue.Api.Modules.Identity.Domain;
 using CampusVenue.Api.Modules.Identity.Features.Auth;
 using CampusVenue.Api.Modules.Identity.Features.ChangePassword;
@@ -83,6 +89,18 @@ builder.Services.Configure<SecurityStampValidatorOptions>(options =>
 {
     // Re-verify session security stamp against database every 5 minutes to reject invalidated sessions
     options.ValidationInterval = TimeSpan.FromMinutes(5);
+    options.OnRefreshingPrincipal = refreshContext =>
+    {
+        // Preserve trusted amr=mfa claim from already-validated session principal
+        if (refreshContext.CurrentPrincipal?.HasClaim("amr", "mfa") == true &&
+            refreshContext.NewPrincipal?.Identity is ClaimsIdentity newIdentity &&
+            !refreshContext.NewPrincipal.HasClaim("amr", "mfa"))
+        {
+            newIdentity.AddClaim(new Claim("amr", "mfa"));
+        }
+
+        return Task.CompletedTask;
+    };
 });
 
 builder.Services.ConfigureApplicationCookie(options =>
@@ -213,6 +231,9 @@ builder.Services.AddSwaggerGen(options =>
 builder.Services.AddSingleton<DevMailboxService>();
 builder.Services.AddSingleton<IEmailSender>(sp => sp.GetRequiredService<DevMailboxService>());
 
+// 14. Facilities & Availability Services
+builder.Services.AddScoped<AvailabilityService>();
+
 var app = builder.Build();
 
 // Pipeline Configuration
@@ -251,11 +272,14 @@ if (isOperatorCommand)
 // Seed dev user if explicitly supplied in Development
 await DevUserSeeder.SeedDevUserAsync(app.Services, app.Environment, args, app.Configuration, app.Logger);
 
+// Seed local demo venues (Central Hall & Department Room) with sample coverage and blocks
+await VenueSeeder.SeedVenuesAsync(app.Services, app.Logger);
+
 // Root information endpoint
 app.MapGet("/", () => Results.Ok(new
 {
     name = "CampusVenue API",
-    version = "1.0.0-phase1b.1",
+    version = "1.0.0-pilot",
     status = "Active",
     documentation = "/swagger",
     health = "/health"
@@ -274,6 +298,10 @@ app.MapChangePasswordEndpoints();
 app.MapSignOutEverywhereEndpoints();
 app.MapTwoFactorEndpoints();
 app.MapUserDirectoryEndpoints();
+app.MapVenueEndpoints();
+app.MapCalendarEndpoints();
+app.MapAvailabilityEndpoints();
+app.MapBookingRequestEndpoints();
 
 app.Run();
 

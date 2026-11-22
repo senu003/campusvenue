@@ -14,6 +14,8 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -64,6 +66,12 @@ public static class TestDatabaseHelper
             });
 
             using var dbContext = new CampusVenueDbContext(optionsBuilder.Options);
+            var creator = dbContext.Database.GetService<IRelationalDatabaseCreator>();
+            if (!creator.Exists())
+            {
+                creator.Create();
+                Console.WriteLine("TestDatabaseHelper: Created disposable test database.");
+            }
             dbContext.Database.Migrate();
 
             // Seed institutional authorization roles under the migration lock so that all

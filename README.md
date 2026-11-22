@@ -76,7 +76,9 @@ Phases 1-13 — Business Features:  [                    ] 0%   (Planned)
 | **Authenticator MFA & Recovery Codes** | :white_check_mark: **Implemented & Verified** | Phase 1A.6 | TOTP authenticator enrollment, local SVG QR code generation, 10 single-use recovery codes, short-lived 2FA challenge flow, secure regenerate/disable. |
 | **Administrator User Directory & Role Model** | :white_check_mark: **Implemented & Verified** | Phase 1B.1 | Institutional roles (`UniversityAdmin`, `FacilityAdmin`, `EventCoordinator`, `Participant`), operator-only elevation, paginated directory API, and mandatory MFA session enforcement. |
 | **Audited Staff Role Assignment** | :white_check_mark: **Implemented & Verified** | Phase 1B.2 | Audited staff role assignment (`FacilityAdmin`, `EventCoordinator`), transactional audit logging, concurrency conflict detection, and old session invalidation. |
-| **University Organizations & Tenancy** | :hourglass: *Planned* | Phase 1C | Faculties, academic departments, student societies, coordinator assignment scoping. |
+| **Venue Catalog & Verified Availability** | :white_check_mark: **Implemented & Verified** | Phase 1C.1 | Admin-managed catalog (central & departmental), verified calendar coverages, scoped blockouts, temporal availability engine with buffer collision isolation. |
+| **Space Requests & Approvals Workflow** | :white_check_mark: **Implemented & Verified** | Phase 1C.2 | Booking request submission with rechecked availability, general rules management, manager review queue (Approve, Conditions, Reject), outbox email notifications, segregation of duties. |
+| **Booking Confirmation & Overlap Constraints** | :hourglass: *Planned* | Phase 1C.3 | Coordinator condition acceptance, PostgreSQL btree_gist temporal exclusion constraints. |
 | **Buildings & Space Inventory** | :hourglass: *Planned* | Phase 2 | Space catalog, equipment metadata, accessibility tags, photo galleries. |
 | **Availability Calendar & Buffer Math** | :hourglass: *Planned* | Phase 3 | Timetable blockouts, setup/teardown buffers, recurring semester rules. |
 | **Coordinator Space Requests & Approvals** | :hourglass: *Planned* | Phase 4 | Reservation state machine, facility manager review queue, conflict alerts. |
@@ -451,6 +453,15 @@ See [docs/product/roadmap.md](docs/product/roadmap.md) for detailed deliverables
   - [Docker & Container Infrastructure Guide](docs/deployment/docker-compose-guide.md)
   - [Phase 0 Completion Report](docs/progress/phase-0-completion.md)
   - [Phase 1A.1 Completion Report (Auth Core)](docs/progress/phase-1a1-completion.md)
+  - [Phase 1A.2 Completion Report (Registration & Email)](docs/progress/phase-1a2-completion.md)
+  - [Phase 1A.3 Completion Report (Password Reset)](docs/progress/phase-1a3-completion.md)
+  - [Phase 1A.4 Completion Report (Password Change)](docs/progress/phase-1a4-completion.md)
+  - [Phase 1A.5 Completion Report (Sign Out Everywhere)](docs/progress/phase-1a5-completion.md)
+  - [Phase 1A.6 Completion Report (Authenticator MFA)](docs/progress/phase-1a6-completion.md)
+  - [Phase 1B.1 Completion Report (User Directory)](docs/progress/phase-1b1-completion.md)
+  - [Phase 1B.2 Completion Report (Staff Roles)](docs/progress/phase-1b2-completion.md)
+  - [Phase 1C Slice 1 Completion Report (Venue Catalog & Availability)](docs/progress/phase-1c-slice1-completion.md)
+  - [Phase 1C Slice 2 Completion Report (Booking Requests & Venue Review)](docs/progress/phase-1c-slice2-completion.md)
 - **Governance**:
   - [Antigravity Engineering Directives](AGENTS.md)
   - [Contributing Guidelines](CONTRIBUTING.md)
@@ -460,17 +471,23 @@ See [docs/product/roadmap.md](docs/product/roadmap.md) for detailed deliverables
 
 ## 21. Project Status & Known Limitations
 
-- **Current Status**: **Phase 1A.1 Completed & Verified** (Secure Sign-In & Sign-Out Authentication Core).
+- **Current Status**: **Phase 1C Slice 2 Completed & Verified** (Booking Requests & Venue Review).
 - **Implemented Capabilities**:
-  - ASP.NET Core Identity authentication with same-origin HttpOnly cookies (`CampusVenue.Auth`) and finite 8-hour session lifetime.
-  - Anti-CSRF protection on state-altering requests (`GET /api/auth/antiforgery`, header `X-XSRF-TOKEN`).
-  - IP-partitioned rate limiting and 5-attempt account lockout with uniform timing-safe 401 Problem Details.
-  - Forward-only EF Core migration `20261118061958_AddIdentityCore` applied against PostgreSQL with snake_case tables.
-  - React SPA login workflow with accessible form, protected account view, session restoration, and logout.
-  - Data Protection key ring persisted in Docker named volume `campusvenue_dpkeys`.
-- **Known Limitations in Phase 1A.1**:
-  - Registration, password reset, email verification, and role assignments are scheduled for subsequent Phase 1 slices (Phases 1A.2, 1B, 1C).
-  - Business entities (spaces, reservations, events) begin in Phase 2+.
+  - ASP.NET Core Identity authentication with same-origin HttpOnly cookies (`CampusVenue.Auth`), MFA enrollment with local vector QR codes, recovery codes, and `UniversityAdminWithMfa` policy.
+  - Operator-only administrative elevation CLI and audited staff role management (`FacilityAdmin`, `EventCoordinator`) with concurrency conflict detection.
+  - Unified venue catalog supporting central halls (*Civil Auditorium / J.G. Hall*) and department rooms (*Faculty of Business Room 101*) with operating hours and configurable buffers.
+  - Verified calendar coverages and facility-scoped blockouts (preventing unassigned facility staff from modifying other venues).
+  - Temporal availability engine calculating full occupied intervals (`[Start - Setup, End + Cleanup]`), detecting direct and buffer-only collisions, and returning `Available`, `Unavailable`, or `Availability unverified`.
+  - General venue rules management (`GeneralRules` text on `Venue`) protected by `CanManageVenueRulesAsync` (`UniversityAdminWithMfa` or assigned `FacilityAdmin`).
+  - Booking request submission with server-side temporal availability rechecks, idempotency key validation, and orphan venue protection (blocks requests when venue has no assigned managers).
+  - Manager review queue supporting `Approve`, `ApproveWithConditions`, and `Reject` (with reason), with strict segregation of duties (coordinators who are also venue managers cannot review their own requests).
+  - Coordinator condition review interface with options to accept (transitions to `AwaitingConfirmation`) or decline (transitions to `Cancelled`).
+  - Transactional notification delivery: atomic persistence of `VenueBookingRequest` and `BookingNotification` via execution strategy and local development mailbox integration.
+  - Forward-only EF Core migrations `20261119130930_AddVenueCatalogAndVerifiedAvailability` and `20261122041732_AddBookingRequestsAndVenueReview` with snake_case tables and check constraints.
+  - Interactive React catalog view with live availability drawer, submission modal, "My Requests" tracker, "Review Queue" dashboard, and calendar management tab.
+- **Known Limitations & Planned Scope**:
+  - Pending booking requests do not block the availability calendar.
+  - Database-level temporal overlap exclusion constraints (`tstzrange` with `gist`) and final booking confirmation belong to Phase 1C Slice 3.
 
 ---
 

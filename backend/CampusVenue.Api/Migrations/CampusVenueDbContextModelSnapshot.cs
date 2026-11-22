@@ -23,6 +23,249 @@ namespace CampusVenue.Api.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("CampusVenue.Api.Modules.Facilities.Domain.Venue", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<int>("Capacity")
+                        .HasColumnType("integer")
+                        .HasColumnName("capacity");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("code");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at_utc");
+
+                    b.Property<int>("DefaultCleanupMinutes")
+                        .HasColumnType("integer")
+                        .HasColumnName("default_cleanup_minutes");
+
+                    b.Property<int>("DefaultSetupMinutes")
+                        .HasColumnType("integer")
+                        .HasColumnName("default_setup_minutes");
+
+                    b.Property<string>("GeneralRules")
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)")
+                        .HasColumnName("general_rules");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_active");
+
+                    b.Property<string>("ManagingUnit")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("managing_unit");
+
+                    b.Property<int>("MaxBookingHours")
+                        .HasColumnType("integer")
+                        .HasColumnName("max_booking_hours");
+
+                    b.Property<int>("MinNoticeHours")
+                        .HasColumnType("integer")
+                        .HasColumnName("min_notice_hours");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("name");
+
+                    b.Property<TimeOnly>("OperatingHoursEnd")
+                        .HasColumnType("time without time zone")
+                        .HasColumnName("operating_hours_end");
+
+                    b.Property<TimeOnly>("OperatingHoursStart")
+                        .HasColumnType("time without time zone")
+                        .HasColumnName("operating_hours_start");
+
+                    b.Property<bool>("RequiresEventApproval")
+                        .HasColumnType("boolean")
+                        .HasColumnName("requires_event_approval");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("type");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at_utc");
+
+                    b.HasKey("Id")
+                        .HasName("pk_venues");
+
+                    b.HasIndex("Code")
+                        .IsUnique()
+                        .HasDatabaseName("ix_venues_code");
+
+                    b.HasIndex("IsActive")
+                        .HasDatabaseName("ix_venues_is_active");
+
+                    b.ToTable("venues", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_venues_capacity_positive", "capacity > 0");
+
+                            t.HasCheckConstraint("ck_venues_cleanup_buffer_nonnegative", "default_cleanup_minutes >= 0");
+
+                            t.HasCheckConstraint("ck_venues_max_booking_positive", "max_booking_hours > 0");
+
+                            t.HasCheckConstraint("ck_venues_min_notice_positive", "min_notice_hours >= 0");
+
+                            t.HasCheckConstraint("ck_venues_setup_buffer_nonnegative", "default_setup_minutes >= 0");
+                        });
+                });
+
+            modelBuilder.Entity("CampusVenue.Api.Modules.Facilities.Domain.VenueCalendarBlock", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("BlockType")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("block_type");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at_utc");
+
+                    b.Property<Guid>("CreatedByUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by_user_id");
+
+                    b.Property<DateTime>("EndUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("end_utc");
+
+                    b.Property<DateTime>("StartUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("start_utc");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)")
+                        .HasColumnName("title");
+
+                    b.Property<Guid>("VenueId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("venue_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_venue_calendar_blocks");
+
+                    b.HasIndex("CreatedByUserId")
+                        .HasDatabaseName("ix_venue_calendar_blocks_created_by_user_id");
+
+                    b.HasIndex("VenueId", "StartUtc", "EndUtc")
+                        .HasDatabaseName("ix_venue_calendar_blocks_venue_id_dates");
+
+                    b.ToTable("venue_calendar_blocks", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_venue_calendar_blocks_dates", "end_utc > start_utc");
+                        });
+                });
+
+            modelBuilder.Entity("CampusVenue.Api.Modules.Facilities.Domain.VenueCalendarCoverage", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTime>("CoversFromUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("covers_from_utc");
+
+                    b.Property<DateTime>("CoversToUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("covers_to_utc");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at_utc");
+
+                    b.Property<string>("Notes")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("notes");
+
+                    b.Property<string>("SourceName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("source_name");
+
+                    b.Property<string>("SourceReference")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("source_reference");
+
+                    b.Property<Guid>("VenueId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("venue_id");
+
+                    b.Property<DateTime>("VerifiedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("verified_at_utc");
+
+                    b.Property<Guid>("VerifiedByUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("verified_by_user_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_venue_calendar_coverages");
+
+                    b.HasIndex("VerifiedByUserId")
+                        .HasDatabaseName("ix_venue_calendar_coverages_verified_by_user_id");
+
+                    b.HasIndex("VenueId", "CoversFromUtc", "CoversToUtc")
+                        .HasDatabaseName("ix_venue_calendar_coverages_venue_id_coverage");
+
+                    b.ToTable("venue_calendar_coverages", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_venue_calendar_coverages_dates", "covers_to_utc > covers_from_utc");
+                        });
+                });
+
+            modelBuilder.Entity("CampusVenue.Api.Modules.Facilities.Domain.VenueManager", b =>
+                {
+                    b.Property<Guid>("VenueId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("venue_id");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.Property<DateTime>("AssignedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("assigned_at_utc");
+
+                    b.HasKey("VenueId", "UserId")
+                        .HasName("pk_venue_managers");
+
+                    b.HasIndex("UserId")
+                        .HasDatabaseName("ix_venue_managers_user_id");
+
+                    b.ToTable("venue_managers", (string)null);
+                });
+
             modelBuilder.Entity("CampusVenue.Api.Modules.Identity.Domain.ApplicationRole", b =>
                 {
                     b.Property<Guid>("Id")
@@ -195,6 +438,183 @@ namespace CampusVenue.Api.Migrations
                     b.ToTable("role_assignment_audits", (string)null);
                 });
 
+            modelBuilder.Entity("CampusVenue.Api.Modules.Reservations.Domain.BookingNotification", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("BodyHtml")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("body_html");
+
+                    b.Property<Guid>("BookingRequestId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("booking_request_id");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at_utc");
+
+                    b.Property<string>("NotificationType")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("notification_type");
+
+                    b.Property<string>("RecipientEmail")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("recipient_email");
+
+                    b.Property<Guid>("RecipientUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("recipient_user_id");
+
+                    b.Property<DateTime>("SentAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("sent_at_utc");
+
+                    b.Property<string>("Subject")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)")
+                        .HasColumnName("subject");
+
+                    b.HasKey("Id")
+                        .HasName("pk_booking_notifications");
+
+                    b.HasIndex("BookingRequestId")
+                        .HasDatabaseName("ix_booking_notifications_booking_request_id");
+
+                    b.HasIndex("RecipientUserId")
+                        .HasDatabaseName("ix_booking_notifications_recipient_user_id");
+
+                    b.ToTable("booking_notifications", (string)null);
+                });
+
+            modelBuilder.Entity("CampusVenue.Api.Modules.Reservations.Domain.VenueBookingRequest", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<int>("CleanupMinutes")
+                        .HasColumnType("integer")
+                        .HasColumnName("cleanup_minutes");
+
+                    b.Property<string>("Conditions")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)")
+                        .HasColumnName("conditions");
+
+                    b.Property<bool?>("ConditionsAccepted")
+                        .HasColumnType("boolean")
+                        .HasColumnName("conditions_accepted");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at_utc");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)")
+                        .HasColumnName("description");
+
+                    b.Property<DateTime>("EventEndUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("event_end_utc");
+
+                    b.Property<DateTime>("EventStartUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("event_start_utc");
+
+                    b.Property<string>("EventTitle")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("event_title");
+
+                    b.Property<int>("ExpectedAttendance")
+                        .HasColumnType("integer")
+                        .HasColumnName("expected_attendance");
+
+                    b.Property<string>("IdempotencyKey")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("idempotency_key");
+
+                    b.Property<Guid>("RequesterId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("requester_id");
+
+                    b.Property<string>("ReviewNotes")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)")
+                        .HasColumnName("review_notes");
+
+                    b.Property<DateTime?>("ReviewedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("reviewed_at_utc");
+
+                    b.Property<Guid?>("ReviewedByUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("reviewed_by_user_id");
+
+                    b.Property<int>("SetupMinutes")
+                        .HasColumnType("integer")
+                        .HasColumnName("setup_minutes");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("status");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at_utc");
+
+                    b.Property<Guid>("VenueId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("venue_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_venue_booking_requests");
+
+                    b.HasIndex("IdempotencyKey")
+                        .IsUnique()
+                        .HasDatabaseName("ix_venue_booking_requests_idempotency_key")
+                        .HasFilter("idempotency_key IS NOT NULL");
+
+                    b.HasIndex("RequesterId")
+                        .HasDatabaseName("ix_venue_booking_requests_requester_id");
+
+                    b.HasIndex("ReviewedByUserId");
+
+                    b.HasIndex("Status")
+                        .HasDatabaseName("ix_venue_booking_requests_status");
+
+                    b.HasIndex("VenueId")
+                        .HasDatabaseName("ix_venue_booking_requests_venue_id");
+
+                    b.HasIndex("VenueId", "EventStartUtc", "EventEndUtc")
+                        .HasDatabaseName("ix_venue_booking_requests_venue_dates");
+
+                    b.ToTable("venue_booking_requests", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_venue_booking_requests_attendance", "expected_attendance > 0");
+
+                            t.HasCheckConstraint("ck_venue_booking_requests_buffers", "setup_minutes >= 0 AND cleanup_minutes >= 0");
+
+                            t.HasCheckConstraint("ck_venue_booking_requests_dates", "event_end_utc > event_start_utc");
+                        });
+                });
+
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRoleClaim<System.Guid>", b =>
                 {
                     b.Property<int>("Id")
@@ -316,6 +736,69 @@ namespace CampusVenue.Api.Migrations
                     b.ToTable("user_tokens", (string)null);
                 });
 
+            modelBuilder.Entity("CampusVenue.Api.Modules.Facilities.Domain.VenueCalendarBlock", b =>
+                {
+                    b.HasOne("CampusVenue.Api.Modules.Identity.Domain.ApplicationUser", "CreatedByUser")
+                        .WithMany()
+                        .HasForeignKey("CreatedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_venue_calendar_blocks_users_created_by_user_id");
+
+                    b.HasOne("CampusVenue.Api.Modules.Facilities.Domain.Venue", "Venue")
+                        .WithMany("CalendarBlocks")
+                        .HasForeignKey("VenueId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_venue_calendar_blocks_venues_venue_id");
+
+                    b.Navigation("CreatedByUser");
+
+                    b.Navigation("Venue");
+                });
+
+            modelBuilder.Entity("CampusVenue.Api.Modules.Facilities.Domain.VenueCalendarCoverage", b =>
+                {
+                    b.HasOne("CampusVenue.Api.Modules.Facilities.Domain.Venue", "Venue")
+                        .WithMany("CalendarCoverages")
+                        .HasForeignKey("VenueId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_venue_calendar_coverages_venues_venue_id");
+
+                    b.HasOne("CampusVenue.Api.Modules.Identity.Domain.ApplicationUser", "VerifiedByUser")
+                        .WithMany()
+                        .HasForeignKey("VerifiedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_venue_calendar_coverages_users_verified_by_user_id");
+
+                    b.Navigation("Venue");
+
+                    b.Navigation("VerifiedByUser");
+                });
+
+            modelBuilder.Entity("CampusVenue.Api.Modules.Facilities.Domain.VenueManager", b =>
+                {
+                    b.HasOne("CampusVenue.Api.Modules.Identity.Domain.ApplicationUser", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_venue_managers_users_user_id");
+
+                    b.HasOne("CampusVenue.Api.Modules.Facilities.Domain.Venue", "Venue")
+                        .WithMany("Managers")
+                        .HasForeignKey("VenueId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_venue_managers_venues_venue_id");
+
+                    b.Navigation("User");
+
+                    b.Navigation("Venue");
+                });
+
             modelBuilder.Entity("CampusVenue.Api.Modules.Identity.Domain.RoleAssignmentAudit", b =>
                 {
                     b.HasOne("CampusVenue.Api.Modules.Identity.Domain.ApplicationUser", "Actor")
@@ -335,6 +818,56 @@ namespace CampusVenue.Api.Migrations
                     b.Navigation("Actor");
 
                     b.Navigation("TargetUser");
+                });
+
+            modelBuilder.Entity("CampusVenue.Api.Modules.Reservations.Domain.BookingNotification", b =>
+                {
+                    b.HasOne("CampusVenue.Api.Modules.Reservations.Domain.VenueBookingRequest", "BookingRequest")
+                        .WithMany("Notifications")
+                        .HasForeignKey("BookingRequestId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_booking_notifications_venue_booking_requests_booking_request_id");
+
+                    b.HasOne("CampusVenue.Api.Modules.Identity.Domain.ApplicationUser", "RecipientUser")
+                        .WithMany()
+                        .HasForeignKey("RecipientUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_booking_notifications_users_recipient_user_id");
+
+                    b.Navigation("BookingRequest");
+
+                    b.Navigation("RecipientUser");
+                });
+
+            modelBuilder.Entity("CampusVenue.Api.Modules.Reservations.Domain.VenueBookingRequest", b =>
+                {
+                    b.HasOne("CampusVenue.Api.Modules.Identity.Domain.ApplicationUser", "Requester")
+                        .WithMany()
+                        .HasForeignKey("RequesterId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_venue_booking_requests_users_requester_id");
+
+                    b.HasOne("CampusVenue.Api.Modules.Identity.Domain.ApplicationUser", "ReviewedByUser")
+                        .WithMany()
+                        .HasForeignKey("ReviewedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_venue_booking_requests_users_reviewed_by_user_id");
+
+                    b.HasOne("CampusVenue.Api.Modules.Facilities.Domain.Venue", "Venue")
+                        .WithMany()
+                        .HasForeignKey("VenueId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_venue_booking_requests_venues_venue_id");
+
+                    b.Navigation("Requester");
+
+                    b.Navigation("ReviewedByUser");
+
+                    b.Navigation("Venue");
                 });
 
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRoleClaim<System.Guid>", b =>
@@ -386,6 +919,20 @@ namespace CampusVenue.Api.Migrations
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("CampusVenue.Api.Modules.Facilities.Domain.Venue", b =>
+                {
+                    b.Navigation("CalendarBlocks");
+
+                    b.Navigation("CalendarCoverages");
+
+                    b.Navigation("Managers");
+                });
+
+            modelBuilder.Entity("CampusVenue.Api.Modules.Reservations.Domain.VenueBookingRequest", b =>
+                {
+                    b.Navigation("Notifications");
                 });
 #pragma warning restore 612, 618
         }

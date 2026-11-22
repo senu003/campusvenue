@@ -524,6 +524,15 @@ export async function verifyTwoFactorChallenge(params: TwoFactorChallengeRequest
     memoryAntiforgeryToken = data.antiforgeryToken;
   }
 
+  try {
+    const currentUser = await getCurrentUser();
+    if (currentUser) {
+      return currentUser;
+    }
+  } catch {
+    // Fallback if /me request fails
+  }
+
   return {
     id: data.user?.id ?? '',
     email: data.user?.email ?? '',
