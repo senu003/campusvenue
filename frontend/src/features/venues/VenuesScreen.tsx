@@ -6,6 +6,7 @@ import type {
   VenueCalendarBlockDto,
   BookingRequestDto,
   UpdateVenueRulesPayload,
+  BuildingDto,
 } from './types';
 import {
   fetchVenues,
@@ -22,6 +23,10 @@ import {
   respondToConditions,
   updateVenueRules,
   assignVenueManager,
+  fetchBuildings,
+  createBuilding,
+  updateBuilding,
+  assignVenueBuilding,
 } from './api';
 import { ConfirmBookingAction } from './ConfirmBookingAction';
 import { fetchUserDirectory } from '../users/api';
@@ -50,6 +55,7 @@ import {
   ClipboardList,
   UserPlus,
   Search,
+  Edit2,
 } from 'lucide-react';
 
 export const VenuesScreen: React.FC = () => {
@@ -113,7 +119,30 @@ export const VenuesScreen: React.FC = () => {
   const [loadingManagement, setLoadingManagement] = useState<boolean>(false);
   const [managementError, setManagementError] = useState<string | null>(null);
   const [managementSuccess, setManagementSuccess] = useState<string | null>(null);
-  const [managementSubView, setManagementSubView] = useState<'calendar' | 'rules'>('calendar');
+  const [managementSubView, setManagementSubView] = useState<'calendar' | 'rules' | 'buildings'>('calendar');
+
+  // Buildings state
+  const [buildings, setBuildings] = useState<BuildingDto[]>([]);
+  const [selectedBuildingFilter, setSelectedBuildingFilter] = useState<string>('all');
+  const [loadingBuildings, setLoadingBuildings] = useState<boolean>(false);
+
+  // Building modals state (UniversityAdmin with MFA)
+  const [showCreateBuildingModal, setShowCreateBuildingModal] = useState<boolean>(false);
+  const [buildingNameInput, setBuildingNameInput] = useState<string>('');
+  const [buildingCodeInput, setBuildingCodeInput] = useState<string>('');
+  const [isSubmittingBuilding, setIsSubmittingBuilding] = useState<boolean>(false);
+  const [createBuildingError, setCreateBuildingError] = useState<string | null>(null);
+
+  const [editingBuilding, setEditingBuilding] = useState<BuildingDto | null>(null);
+  const [editBuildingNameInput, setEditBuildingNameInput] = useState<string>('');
+  const [editBuildingCodeInput, setEditBuildingCodeInput] = useState<string>('');
+  const [isSubmittingEditBuilding, setIsSubmittingEditBuilding] = useState<boolean>(false);
+  const [editBuildingError, setEditBuildingError] = useState<string | null>(null);
+
+  // Venue building assignment state
+  const [isAssigningBuilding, setIsAssigningBuilding] = useState<boolean>(false);
+  const [assignBuildingError, setAssignBuildingError] = useState<string | null>(null);
+  const [selectedBuildingForAssignment, setSelectedBuildingForAssignment] = useState<string>('');
 
   // Venue rules management form state
   const [ruleOpStart, setRuleOpStart] = useState<string>('08:00');
@@ -184,7 +213,20 @@ export const VenuesScreen: React.FC = () => {
     }
   };
 
+  const refreshBuildings = async () => {
+    setLoadingBuildings(true);
+    try {
+      const data = await fetchBuildings();
+      setBuildings(data);
+    } catch {
+      // Non-blocking for unauthenticated or read failures
+    } finally {
+      setLoadingBuildings(false);
+    }
+  };
+
   const populateVenueRulesForm = (venue: VenueDto) => {
+    setSelectedBuildingForAssignment(venue.buildingId || '');
     setRuleOpStart(venue.operatingHoursStart);
     setRuleOpEnd(venue.operatingHoursEnd);
     setRuleCapacity(venue.capacity);
@@ -243,14 +285,18 @@ export const VenuesScreen: React.FC = () => {
 
     async function loadInitial() {
       try {
-        const data = await fetchVenues();
+        const [venuesData, buildingsData] = await Promise.all([
+          fetchVenues(),
+          fetchBuildings().catch(() => [] as BuildingDto[]),
+        ]);
         if (!ignore) {
-          setVenues(data);
-          if (data.length > 0) {
-            setSelectedVenueId((prev) => prev || data[0].id);
-            setSetupMinutes(data[0].defaultSetupMinutes);
-            setCleanupMinutes(data[0].defaultCleanupMinutes);
-            populateVenueRulesForm(data[0]);
+          setVenues(venuesData);
+          setBuildings(buildingsData);
+          if (venuesData.length > 0) {
+            setSelectedVenueId((prev) => prev || venuesData[0].id);
+            setSetupMinutes(venuesData[0].defaultSetupMinutes);
+            setCleanupMinutes(venuesData[0].defaultCleanupMinutes);
+            populateVenueRulesForm(venuesData[0]);
           }
           setLoadingVenues(false);
         }
@@ -276,8 +322,104 @@ export const VenuesScreen: React.FC = () => {
       refreshMyRequests();
     } else if (tab === 'review-queue' && isFacilityStaff) {
       refreshReviewQueue();
-    } else if (tab === 'management' && selectedVenueId) {
-      refreshManagementData(selectedVenueId);
+    } else if (tab === 'management') {
+      if (selectedVenueId) {
+        refreshManagementData(selectedVenueId);
+      }
+      refreshBuildings();
+    }
+  };
+
+  const handleOpenCreateBuildingModal = () => {
+    setShowCreateBuildingModal(true);
+    setBuildingNameInput('');
+    setBuildingCodeInput('');
+    setCreateBuildingError(null);
+  };
+
+  const handleCloseCreateBuildingModal = () => {
+    setShowCreateBuildingModal(false);
+    setBuildingNameInput('');
+    setBuildingCodeInput('');
+    setCreateBuildingError(null);
+  };
+
+  const handleCreateBuildingSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!buildingNameInput.trim() || !buildingCodeInput.trim()) return;
+
+    setIsSubmittingBuilding(true);
+    setCreateBuildingError(null);
+
+    try {
+      await createBuilding({
+        name: buildingNameInput.trim(),
+        code: buildingCodeInput.trim(),
+      });
+      await refreshBuildings();
+      setShowCreateBuildingModal(false);
+      setBuildingNameInput('');
+      setBuildingCodeInput('');
+      setManagementSuccess('Building registered successfully.');
+    } catch (err: unknown) {
+      setCreateBuildingError(err instanceof Error ? err.message : 'Failed to create building.');
+    } finally {
+      setIsSubmittingBuilding(false);
+    }
+  };
+
+  const handleOpenEditBuildingModal = (b: BuildingDto) => {
+    setEditingBuilding(b);
+    setEditBuildingNameInput(b.name);
+    setEditBuildingCodeInput(b.code);
+    setEditBuildingError(null);
+  };
+
+  const handleCloseEditBuildingModal = () => {
+    setEditingBuilding(null);
+    setEditBuildingNameInput('');
+    setEditBuildingCodeInput('');
+    setEditBuildingError(null);
+  };
+
+  const handleUpdateBuildingSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingBuilding || !editBuildingNameInput.trim() || !editBuildingCodeInput.trim()) return;
+
+    setIsSubmittingEditBuilding(true);
+    setEditBuildingError(null);
+
+    try {
+      await updateBuilding(editingBuilding.id, {
+        name: editBuildingNameInput.trim(),
+        code: editBuildingCodeInput.trim(),
+      });
+      await Promise.all([refreshBuildings(), refreshVenues()]);
+      setEditingBuilding(null);
+      setManagementSuccess(`Building updated successfully.`);
+    } catch (err: unknown) {
+      setEditBuildingError(err instanceof Error ? err.message : 'Failed to update building.');
+    } finally {
+      setIsSubmittingEditBuilding(false);
+    }
+  };
+
+  const handleAssignBuildingSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedVenue) return;
+
+    setIsAssigningBuilding(true);
+    setAssignBuildingError(null);
+
+    try {
+      const bId = selectedBuildingForAssignment ? selectedBuildingForAssignment : null;
+      await assignVenueBuilding(selectedVenue.id, { buildingId: bId });
+      await Promise.all([refreshVenues(), refreshBuildings()]);
+      setManagementSuccess(`Venue building assignment updated for ${selectedVenue.name}.`);
+    } catch (err: unknown) {
+      setAssignBuildingError(err instanceof Error ? err.message : 'Failed to assign building.');
+    } finally {
+      setIsAssigningBuilding(false);
     }
   };
 
@@ -683,90 +825,151 @@ export const VenuesScreen: React.FC = () => {
           {/* =========================================================================
               TAB 1: CATALOG & AVAILABILITY CHECK & BOOKING SUBMISSION
               ========================================================================= */}
-          {activeTab === 'catalog' && (
+          {activeTab === 'catalog' && (() => {
+            const filteredVenues = venues.filter((venue) => {
+              if (selectedBuildingFilter === 'all') return true;
+              if (selectedBuildingFilter === 'unassigned') return !venue.buildingId;
+              return venue.buildingId === selectedBuildingFilter;
+            });
+
+            return (
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
               {/* Venue List Column */}
               <div className="lg:col-span-5 space-y-4">
-                <h2 className="text-base font-semibold text-gray-900 flex items-center gap-2">
-                  <Layers className="h-4 w-4 text-gray-500" />
-                  Select Venue
-                </h2>
+                <div className="flex items-center justify-between">
+                  <h2 className="text-base font-semibold text-gray-900 flex items-center gap-2">
+                    <Layers className="h-4 w-4 text-gray-500" />
+                    Select Venue
+                  </h2>
+                  <span className="text-xs text-gray-500 font-medium">
+                    Showing {filteredVenues.length} of {venues.length}
+                  </span>
+                </div>
+
+                {/* Filter by Building */}
+                <div className="bg-gray-50 p-3 rounded-lg border border-gray-200 space-y-1.5">
+                  <label htmlFor="building-filter" className="block text-xs font-semibold text-gray-700">
+                    Filter by Building
+                  </label>
+                  <select
+                    id="building-filter"
+                    data-testid="building-filter"
+                    value={selectedBuildingFilter}
+                    onChange={(e) => setSelectedBuildingFilter(e.target.value)}
+                    className="w-full text-xs rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 bg-white"
+                  >
+                    <option value="all">All Buildings</option>
+                    <option value="unassigned">Unassigned</option>
+                    {buildings.map((b) => (
+                      <option key={b.id} value={b.id}>
+                        {b.name} ({b.code})
+                      </option>
+                    ))}
+                  </select>
+                </div>
 
                 <div className="space-y-3">
-                  {venues.map((venue) => {
-                    const isSelected = venue.id === selectedVenueId;
-                    return (
-                      <div
-                        key={venue.id}
-                        onClick={() => handleSelectVenue(venue)}
-                        className={`p-4 rounded-lg border cursor-pointer transition-all ${
-                          isSelected
-                            ? 'border-indigo-600 bg-indigo-50/40 shadow-sm'
-                            : 'border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50'
-                        }`}
-                      >
-                        <div className="flex items-start justify-between">
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <h3 className="text-sm font-bold text-gray-900">{venue.name}</h3>
-                              <span
-                                className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
-                                  venue.type === 'Central'
-                                    ? 'bg-purple-100 text-purple-800'
-                                    : 'bg-blue-100 text-blue-800'
-                                }`}
-                              >
-                                {venue.type} Managed
+                  {filteredVenues.length === 0 ? (
+                    <div className="p-8 text-center bg-white rounded-lg border border-gray-200 text-xs text-gray-500">
+                      No venues match the selected building filter.
+                    </div>
+                  ) : (
+                    filteredVenues.map((venue) => {
+                      const isSelected = venue.id === selectedVenueId;
+                      return (
+                        <div
+                          key={venue.id}
+                          onClick={() => handleSelectVenue(venue)}
+                          className={`p-4 rounded-lg border cursor-pointer transition-all ${
+                            isSelected
+                              ? 'border-indigo-600 bg-indigo-50/40 shadow-sm'
+                              : 'border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50'
+                          }`}
+                        >
+                          <div className="flex items-start justify-between">
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <h3 className="text-sm font-bold text-gray-900">{venue.name}</h3>
+                                <span
+                                  className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
+                                    venue.type === 'Central'
+                                      ? 'bg-purple-100 text-purple-800'
+                                      : 'bg-blue-100 text-blue-800'
+                                  }`}
+                                >
+                                  {venue.type} Managed
+                                </span>
+                              </div>
+                              <p className="text-xs text-gray-500 mt-0.5">{venue.managingUnit}</p>
+
+                              {/* Building Badge or Unassigned Indicator */}
+                              <div className="mt-1 flex items-center gap-1.5">
+                                {venue.buildingName ? (
+                                  <span
+                                    data-testid={`venue-building-${venue.id}`}
+                                    className="inline-flex items-center gap-1 text-[11px] font-medium text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-100"
+                                  >
+                                    <Building2 className="h-3 w-3 text-indigo-500" />
+                                    {venue.buildingName} ({venue.buildingCode})
+                                  </span>
+                                ) : (
+                                  <span
+                                    data-testid={`venue-building-${venue.id}`}
+                                    className="inline-flex items-center gap-1 text-[11px] font-normal text-gray-500 bg-gray-100 px-2 py-0.5 rounded italic border border-gray-200"
+                                  >
+                                    <Building2 className="h-3 w-3 text-gray-400" />
+                                    Unassigned
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                            <span className="font-mono text-xs font-semibold text-gray-400">{venue.code}</span>
+                          </div>
+
+                          <div className="mt-3 grid grid-cols-3 gap-2 text-xs text-gray-600 border-t pt-2 border-gray-100">
+                            <div>
+                              <span className="text-gray-400 block text-[10px]">Capacity</span>
+                              <span className="font-medium flex items-center gap-1">
+                                <Users className="h-3 w-3 text-gray-400" />
+                                {venue.capacity}
                               </span>
                             </div>
-                            <p className="text-xs text-gray-500 mt-0.5">{venue.managingUnit}</p>
+                            <div>
+                              <span className="text-gray-400 block text-[10px]">Hours</span>
+                              <span className="font-medium flex items-center gap-1">
+                                <Clock className="h-3 w-3 text-gray-400" />
+                                {venue.operatingHoursStart}–{venue.operatingHoursEnd}
+                              </span>
+                            </div>
+                            <div>
+                              <span className="text-gray-400 block text-[10px]">Buffers</span>
+                              <span className="font-medium">
+                                +{venue.defaultSetupMinutes}m / +{venue.defaultCleanupMinutes}m
+                              </span>
+                            </div>
                           </div>
-                          <span className="font-mono text-xs font-semibold text-gray-400">{venue.code}</span>
+
+                          {/* General Rules Excerpt */}
+                          {venue.generalRules && (
+                            <div className="mt-2.5 p-2 bg-gray-50 rounded border border-gray-100 text-[11px] text-gray-600">
+                              <span className="font-semibold text-gray-700 block mb-0.5 flex items-center gap-1">
+                                <FileText className="h-3 w-3 text-indigo-500" />
+                                General Venue Rules:
+                              </span>
+                              <p className="line-clamp-2 whitespace-pre-line text-gray-600">{venue.generalRules}</p>
+                            </div>
+                          )}
+
+                          {venue.requiresEventApproval && (
+                            <div className="mt-2 text-[11px] text-purple-700 bg-purple-50 px-2 py-0.5 rounded flex items-center gap-1">
+                              <ShieldCheck className="h-3.5 w-3.5" />
+                              Requires Student Welfare event approval
+                            </div>
+                          )}
                         </div>
-
-                        <div className="mt-3 grid grid-cols-3 gap-2 text-xs text-gray-600 border-t pt-2 border-gray-100">
-                          <div>
-                            <span className="text-gray-400 block text-[10px]">Capacity</span>
-                            <span className="font-medium flex items-center gap-1">
-                              <Users className="h-3 w-3 text-gray-400" />
-                              {venue.capacity}
-                            </span>
-                          </div>
-                          <div>
-                            <span className="text-gray-400 block text-[10px]">Hours</span>
-                            <span className="font-medium flex items-center gap-1">
-                              <Clock className="h-3 w-3 text-gray-400" />
-                              {venue.operatingHoursStart}–{venue.operatingHoursEnd}
-                            </span>
-                          </div>
-                          <div>
-                            <span className="text-gray-400 block text-[10px]">Buffers</span>
-                            <span className="font-medium">
-                              +{venue.defaultSetupMinutes}m / +{venue.defaultCleanupMinutes}m
-                            </span>
-                          </div>
-                        </div>
-
-                        {/* General Rules Excerpt */}
-                        {venue.generalRules && (
-                          <div className="mt-2.5 p-2 bg-gray-50 rounded border border-gray-100 text-[11px] text-gray-600">
-                            <span className="font-semibold text-gray-700 block mb-0.5 flex items-center gap-1">
-                              <FileText className="h-3 w-3 text-indigo-500" />
-                              General Venue Rules:
-                            </span>
-                            <p className="line-clamp-2 whitespace-pre-line text-gray-600">{venue.generalRules}</p>
-                          </div>
-                        )}
-
-                        {venue.requiresEventApproval && (
-                          <div className="mt-2 text-[11px] text-purple-700 bg-purple-50 px-2 py-0.5 rounded flex items-center gap-1">
-                            <ShieldCheck className="h-3.5 w-3.5" />
-                            Requires Student Welfare event approval
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
+                      );
+                    })
+                  )}
                 </div>
               </div>
 
@@ -1012,7 +1215,8 @@ export const VenuesScreen: React.FC = () => {
                 )}
               </div>
             </div>
-          )}
+            );
+          })()}
 
           {/* =========================================================================
               MODAL: BOOKING REQUEST SUBMISSION
@@ -1711,6 +1915,20 @@ export const VenuesScreen: React.FC = () => {
                     >
                       Venue Rules & Policies
                     </button>
+                    {isUniAdmin && (
+                      <button
+                        type="button"
+                        data-testid="tab-subview-buildings"
+                        onClick={() => setManagementSubView('buildings')}
+                        className={`px-3 py-1 font-medium rounded ${
+                          managementSubView === 'buildings'
+                            ? 'bg-white text-indigo-700 shadow-sm'
+                            : 'text-gray-600 hover:text-gray-900'
+                        }`}
+                      >
+                        Building Directory
+                      </button>
+                    )}
                   </div>
 
                   <div>
@@ -1740,6 +1958,70 @@ export const VenuesScreen: React.FC = () => {
                 <div className="p-3 bg-red-50 border border-red-200 rounded-md text-xs text-red-800 flex items-center gap-2">
                   <AlertTriangle className="h-4 w-4 text-red-600" />
                   {managementError}
+                </div>
+              )}
+
+              {/* VENUE BUILDING ASSIGNMENT SECTION (UniversityAdmin with completed MFA) */}
+              {canManageVenueManagers && selectedVenue && (
+                <div className="bg-white p-5 rounded-lg border border-gray-200 shadow-sm space-y-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b pb-3 border-gray-100">
+                    <div>
+                      <h3 className="text-sm font-bold text-gray-900 flex items-center gap-2">
+                        <Building2 className="h-4 w-4 text-indigo-600" />
+                        Building Assignment
+                      </h3>
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        Assign or reassign <strong>{selectedVenue.name}</strong> ({selectedVenue.code}) to a university building.
+                      </p>
+                    </div>
+                    <div className="text-xs">
+                      {selectedVenue.buildingName ? (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-indigo-50 text-indigo-700 border border-indigo-200 font-medium">
+                          Current: {selectedVenue.buildingName} ({selectedVenue.buildingCode})
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-gray-100 text-gray-600 border border-gray-200 italic">
+                          Current: Unassigned
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {assignBuildingError && (
+                    <div data-testid="assign-building-error" className="p-3 bg-red-50 border border-red-200 rounded text-xs text-red-700 flex items-center gap-2">
+                      <AlertTriangle className="h-4 w-4 text-red-600 shrink-0" />
+                      <span>{assignBuildingError}</span>
+                    </div>
+                  )}
+
+                  <form onSubmit={handleAssignBuildingSubmit} className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+                    <div className="flex-1">
+                      <label htmlFor="assign-building-select" className="sr-only">Assign Building</label>
+                      <select
+                        id="assign-building-select"
+                        data-testid="assign-building-select"
+                        value={selectedBuildingForAssignment}
+                        onChange={(e) => setSelectedBuildingForAssignment(e.target.value)}
+                        className="w-full text-xs rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                      >
+                        <option value="">None / Unassigned</option>
+                        {buildings.map((b) => (
+                          <option key={b.id} value={b.id}>
+                            {b.name} ({b.code})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <button
+                      type="submit"
+                      data-testid="submit-assign-building"
+                      disabled={isAssigningBuilding}
+                      className="px-4 py-2 text-xs font-semibold rounded-md bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 flex items-center justify-center gap-1.5 shadow-sm"
+                    >
+                      {isAssigningBuilding && <RefreshCw className="h-3.5 w-3.5 animate-spin" />}
+                      {isAssigningBuilding ? 'Saving...' : 'Save Assignment'}
+                    </button>
+                  </form>
                 </div>
               )}
 
@@ -2185,6 +2467,78 @@ export const VenuesScreen: React.FC = () => {
                   </form>
                 </div>
               )}
+
+              {/* SUBVIEW 3: UNIVERSITY BUILDING DIRECTORY */}
+              {managementSubView === 'buildings' && isUniAdmin && (
+                <div className="bg-white p-5 rounded-lg border border-gray-200 shadow-sm space-y-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b pb-3 border-gray-100">
+                    <div>
+                      <h3 className="text-sm font-bold text-gray-900 flex items-center gap-2">
+                        <Building2 className="h-4 w-4 text-indigo-600" />
+                        University Buildings Directory
+                      </h3>
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        Manage university buildings and physical infrastructure codes.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      data-testid="open-create-building-modal"
+                      onClick={handleOpenCreateBuildingModal}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-md bg-indigo-600 text-white hover:bg-indigo-700 shadow-sm transition-colors self-start sm:self-auto"
+                    >
+                      <Plus className="h-3.5 w-3.5" />
+                      Add Building
+                    </button>
+                  </div>
+
+                  {loadingBuildings ? (
+                    <div className="flex items-center justify-center p-8 text-xs text-gray-500 gap-2">
+                      <RefreshCw className="h-4 w-4 animate-spin text-indigo-600" />
+                      Loading buildings...
+                    </div>
+                  ) : buildings.length === 0 ? (
+                    <div className="text-center p-8 text-xs text-gray-500 italic bg-gray-50 rounded border border-gray-100">
+                      No buildings registered yet. Click &quot;Add Building&quot; to create the first one.
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto border border-gray-200 rounded-lg">
+                      <table className="min-w-full divide-y divide-gray-200 text-xs">
+                        <thead className="bg-gray-50">
+                          <tr>
+                            <th className="px-4 py-2.5 text-left font-semibold text-gray-700">Building Name</th>
+                            <th className="px-4 py-2.5 text-left font-semibold text-gray-700">Code</th>
+                            <th className="px-4 py-2.5 text-left font-semibold text-gray-700">Active Venues</th>
+                            <th className="px-4 py-2.5 text-left font-semibold text-gray-700">Registered</th>
+                            <th className="px-4 py-2.5 text-right font-semibold text-gray-700">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100 bg-white">
+                          {buildings.map((b) => (
+                            <tr key={b.id} data-testid={`building-row-${b.id}`} className="hover:bg-gray-50">
+                              <td className="px-4 py-2.5 font-medium text-gray-900">{b.name}</td>
+                              <td className="px-4 py-2.5 font-mono text-gray-600">{b.code}</td>
+                              <td className="px-4 py-2.5 text-gray-600">{b.venueCount}</td>
+                              <td className="px-4 py-2.5 text-gray-400">{new Date(b.createdAtUtc).toLocaleDateString()}</td>
+                              <td className="px-4 py-2.5 text-right">
+                                <button
+                                  type="button"
+                                  data-testid={`edit-building-btn-${b.id}`}
+                                  onClick={() => handleOpenEditBuildingModal(b)}
+                                  className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded text-indigo-700 bg-indigo-50 hover:bg-indigo-100"
+                                >
+                                  <Edit2 className="h-3 w-3" />
+                                  Edit
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
         </>
@@ -2377,6 +2731,156 @@ export const VenuesScreen: React.FC = () => {
                 {isAssigningManager ? 'Assigning...' : 'Assign Manager'}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* CREATE BUILDING MODAL (UniversityAdmin with MFA) */}
+      {showCreateBuildingModal && (
+        <div data-testid="create-building-modal" className="fixed inset-0 z-50 overflow-y-auto bg-gray-900/50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6 space-y-4 text-xs">
+            <div className="flex items-center justify-between border-b pb-3">
+              <h3 className="text-base font-bold text-gray-900 flex items-center gap-2">
+                <Building2 className="h-5 w-5 text-indigo-600" />
+                Add New Building
+              </h3>
+              <button
+                type="button"
+                onClick={handleCloseCreateBuildingModal}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {createBuildingError && (
+              <div data-testid="create-building-error" className="p-3 bg-red-50 border border-red-200 text-xs text-red-700 rounded-md flex items-center gap-2">
+                <AlertTriangle className="h-4 w-4 text-red-600 shrink-0" />
+                <span>{createBuildingError}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleCreateBuildingSubmit} className="space-y-3">
+              <div>
+                <label className="block font-semibold text-gray-700 mb-1">Building Name</label>
+                <input
+                  type="text"
+                  data-testid="create-building-name"
+                  placeholder="e.g. Civil Engineering Complex"
+                  value={buildingNameInput}
+                  onChange={(e) => setBuildingNameInput(e.target.value)}
+                  className="w-full text-xs rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block font-semibold text-gray-700 mb-1">Building Code</label>
+                <input
+                  type="text"
+                  data-testid="create-building-code"
+                  placeholder="e.g. BLD-CIVIL"
+                  value={buildingCodeInput}
+                  onChange={(e) => setBuildingCodeInput(e.target.value)}
+                  className="w-full text-xs rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 uppercase font-mono"
+                  required
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-gray-100">
+                <button
+                  type="button"
+                  onClick={handleCloseCreateBuildingModal}
+                  disabled={isSubmittingBuilding}
+                  className="px-3 py-1.5 text-xs font-medium rounded-md text-gray-700 hover:bg-gray-100"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  data-testid="submit-create-building"
+                  disabled={isSubmittingBuilding || !buildingNameInput.trim() || !buildingCodeInput.trim()}
+                  className="px-4 py-1.5 text-xs font-semibold rounded-md bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 flex items-center gap-1.5"
+                >
+                  {isSubmittingBuilding && <RefreshCw className="h-3.5 w-3.5 animate-spin" />}
+                  {isSubmittingBuilding ? 'Creating...' : 'Create Building'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* EDIT BUILDING MODAL (UniversityAdmin with MFA) */}
+      {editingBuilding && (
+        <div data-testid="edit-building-modal" className="fixed inset-0 z-50 overflow-y-auto bg-gray-900/50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6 space-y-4 text-xs">
+            <div className="flex items-center justify-between border-b pb-3">
+              <h3 className="text-base font-bold text-gray-900 flex items-center gap-2">
+                <Edit2 className="h-5 w-5 text-indigo-600" />
+                Edit Building
+              </h3>
+              <button
+                type="button"
+                onClick={handleCloseEditBuildingModal}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {editBuildingError && (
+              <div data-testid="edit-building-error" className="p-3 bg-red-50 border border-red-200 text-xs text-red-700 rounded-md flex items-center gap-2">
+                <AlertTriangle className="h-4 w-4 text-red-600 shrink-0" />
+                <span>{editBuildingError}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleUpdateBuildingSubmit} className="space-y-3">
+              <div>
+                <label className="block font-semibold text-gray-700 mb-1">Building Name</label>
+                <input
+                  type="text"
+                  data-testid="edit-building-name"
+                  value={editBuildingNameInput}
+                  onChange={(e) => setEditBuildingNameInput(e.target.value)}
+                  className="w-full text-xs rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block font-semibold text-gray-700 mb-1">Building Code</label>
+                <input
+                  type="text"
+                  data-testid="edit-building-code"
+                  value={editBuildingCodeInput}
+                  onChange={(e) => setEditBuildingCodeInput(e.target.value)}
+                  className="w-full text-xs rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 uppercase font-mono"
+                  required
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-gray-100">
+                <button
+                  type="button"
+                  onClick={handleCloseEditBuildingModal}
+                  disabled={isSubmittingEditBuilding}
+                  className="px-3 py-1.5 text-xs font-medium rounded-md text-gray-700 hover:bg-gray-100"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  data-testid="submit-edit-building"
+                  disabled={isSubmittingEditBuilding || !editBuildingNameInput.trim() || !editBuildingCodeInput.trim()}
+                  className="px-4 py-1.5 text-xs font-semibold rounded-md bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 flex items-center gap-1.5"
+                >
+                  {isSubmittingEditBuilding && <RefreshCw className="h-3.5 w-3.5 animate-spin" />}
+                  {isSubmittingEditBuilding ? 'Saving...' : 'Save Changes'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

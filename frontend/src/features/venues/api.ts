@@ -12,6 +12,10 @@ import type {
   ReviewBookingRequestPayload,
   AssignVenueManagerPayload,
   AssignVenueManagerResponse,
+  BuildingDto,
+  CreateBuildingPayload,
+  UpdateBuildingPayload,
+  AssignVenueBuildingPayload,
 } from './types';
 import { fetchAntiforgeryToken, getCachedAntiforgeryToken } from '../auth/api';
 
@@ -588,6 +592,182 @@ export async function confirmBookingRequest(requestId: string): Promise<BookingR
       ? errorData.message
       : `Failed to confirm booking request (HTTP ${response.status})`;
     throw new Error(detail);
+  }
+
+  return response.json();
+}
+
+export async function fetchBuildings(): Promise<BuildingDto[]> {
+  const response = await fetch('/api/buildings', {
+    method: 'GET',
+    headers: {
+      'Accept': 'application/json',
+    },
+    credentials: 'include',
+  });
+
+  if (response.status === 401) {
+    throw new VenueAuthError();
+  }
+
+  if (response.status === 403) {
+    throw new VenueForbiddenError();
+  }
+
+  if (!response.ok) {
+    throw new Error(`Failed to load buildings (HTTP ${response.status})`);
+  }
+
+  return response.json();
+}
+
+export async function createBuilding(payload: CreateBuildingPayload): Promise<BuildingDto> {
+  let token = getCachedAntiforgeryToken();
+  if (!token) {
+    token = await fetchAntiforgeryToken();
+  }
+
+  const response = await fetch('/api/buildings', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+      'X-XSRF-TOKEN': token,
+    },
+    credentials: 'include',
+    body: JSON.stringify(payload),
+  });
+
+  if (response.status === 401) {
+    throw new VenueAuthError();
+  }
+
+  if (response.status === 403) {
+    const errorData = await response.json().catch(() => null);
+    const detail = (errorData && typeof errorData === 'object' && 'detail' in errorData && typeof errorData.detail === 'string')
+      ? errorData.detail
+      : 'You are not authorized to create buildings. UniversityAdmin role with completed MFA is required.';
+    throw new VenueForbiddenError(detail);
+  }
+
+  if (response.status === 409) {
+    const errorData = await response.json().catch(() => null);
+    const message = (errorData && typeof errorData === 'object' && 'message' in errorData && typeof errorData.message === 'string')
+      ? errorData.message
+      : (errorData && typeof errorData === 'object' && 'detail' in errorData && typeof errorData.detail === 'string')
+      ? errorData.detail
+      : `A building with code '${payload.code.trim().toUpperCase()}' already exists.`;
+    throw new Error(message);
+  }
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => null);
+    const message = (errorData && typeof errorData === 'object' && 'message' in errorData && typeof errorData.message === 'string')
+      ? errorData.message
+      : (errorData && typeof errorData === 'object' && 'detail' in errorData && typeof errorData.detail === 'string')
+      ? errorData.detail
+      : `Failed to create building (HTTP ${response.status})`;
+    throw new Error(message);
+  }
+
+  return response.json();
+}
+
+export async function updateBuilding(
+  buildingId: string,
+  payload: UpdateBuildingPayload
+): Promise<BuildingDto> {
+  let token = getCachedAntiforgeryToken();
+  if (!token) {
+    token = await fetchAntiforgeryToken();
+  }
+
+  const response = await fetch(`/api/buildings/${buildingId}`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+      'X-XSRF-TOKEN': token,
+    },
+    credentials: 'include',
+    body: JSON.stringify(payload),
+  });
+
+  if (response.status === 401) {
+    throw new VenueAuthError();
+  }
+
+  if (response.status === 403) {
+    const errorData = await response.json().catch(() => null);
+    const detail = (errorData && typeof errorData === 'object' && 'detail' in errorData && typeof errorData.detail === 'string')
+      ? errorData.detail
+      : 'You are not authorized to update buildings. UniversityAdmin role with completed MFA is required.';
+    throw new VenueForbiddenError(detail);
+  }
+
+  if (response.status === 409) {
+    const errorData = await response.json().catch(() => null);
+    const message = (errorData && typeof errorData === 'object' && 'message' in errorData && typeof errorData.message === 'string')
+      ? errorData.message
+      : (errorData && typeof errorData === 'object' && 'detail' in errorData && typeof errorData.detail === 'string')
+      ? errorData.detail
+      : `A building with code '${payload.code.trim().toUpperCase()}' already exists.`;
+    throw new Error(message);
+  }
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => null);
+    const message = (errorData && typeof errorData === 'object' && 'message' in errorData && typeof errorData.message === 'string')
+      ? errorData.message
+      : (errorData && typeof errorData === 'object' && 'detail' in errorData && typeof errorData.detail === 'string')
+      ? errorData.detail
+      : `Failed to update building (HTTP ${response.status})`;
+    throw new Error(message);
+  }
+
+  return response.json();
+}
+
+export async function assignVenueBuilding(
+  venueId: string,
+  payload: AssignVenueBuildingPayload
+): Promise<VenueDto> {
+  let token = getCachedAntiforgeryToken();
+  if (!token) {
+    token = await fetchAntiforgeryToken();
+  }
+
+  const response = await fetch(`/api/venues/${venueId}/building`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+      'X-XSRF-TOKEN': token,
+    },
+    credentials: 'include',
+    body: JSON.stringify(payload),
+  });
+
+  if (response.status === 401) {
+    throw new VenueAuthError();
+  }
+
+  if (response.status === 403) {
+    const errorData = await response.json().catch(() => null);
+    const detail = (errorData && typeof errorData === 'object' && 'detail' in errorData && typeof errorData.detail === 'string')
+      ? errorData.detail
+      : 'You are not authorized to assign venue buildings. UniversityAdmin role with completed MFA is required.';
+    throw new VenueForbiddenError(detail);
+  }
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => null);
+    const message = (errorData && typeof errorData === 'object' && 'message' in errorData && typeof errorData.message === 'string')
+      ? errorData.message
+      : (errorData && typeof errorData === 'object' && 'detail' in errorData && typeof errorData.detail === 'string')
+      ? errorData.detail
+      : `Failed to assign venue building (HTTP ${response.status})`;
+    throw new Error(message);
   }
 
   return response.json();

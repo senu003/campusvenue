@@ -20,8 +20,9 @@ This document defines the complete multi-phase roadmap for CampusVenue, from Pha
 | **Phase 1C.1** | **Venue Catalog & Verified Availability** | **Completed & Verified** | Admin venue catalog (central & departmental), verified calendar coverages, scoped blockouts, temporal availability engine with buffer collision isolation |
 | **Phase 1C.2** | **Space Requests & Approvals Workflow** | **Completed & Verified** | Eligible slot booking request submission, venue & welfare approver state machines, transactional outbox email delivery |
 | **Phase 1C.3** | **Booking Confirmation & PostgreSQL Overlap Constraints** | **Completed & Verified** | Coordinator approval conditions acceptance, PostgreSQL btree_gist exclusion constraints for zero double-booking |
-| **Phase 2** | Buildings & Reservable Spaces | *Planned* | Space catalog, capacities, audio-visual equipment, accessibility tags, photo galleries |
-| **Phase 3** | Availability Calendar & Constraints | *Planned* | Timetable blockouts, setup/teardown buffers, maintenance windows, interval math |
+| **Phase 2.1** | **Building Directory and Venue Assignment** | **Completed & Verified** | Building entity with unique code, nullable building reference on Venue, backward-compatible migration, admin UI for building CRUD & assignment, catalog building filter & badges |
+| **Phase 2.2+** | **Reservable Spaces Details & Media** | *Planned* | Space catalog, capacities, audio-visual equipment, accessibility tags, photo galleries |
+| **Phase 3** | **Availability Calendar & Constraints** | *Planned* | Timetable blockouts, setup/teardown buffers, maintenance windows, interval math |
 | **Phase 4** | Coordinator Space Requests & Approvals | *Planned* | Reservation workflows, approval state machine, notifications, conflict prevention |
 | **Phase 5** | Explainable Hall Recommendations | *Planned* | Rule-based recommendation engine, score explanations, capacity fit, equipment match |
 | **Phase 6** | Event Creation & Publication | *Planned* | Event lifecycle, multi-session management, public calendar, banners, draft/publish states |
@@ -244,4 +245,34 @@ This document defines the complete multi-phase roadmap for CampusVenue, from Pha
 
 ---
 
-*(Phases 2 through 13 continue as previously defined in the master roadmap).*
+### Phase 2: Buildings & Reservable Spaces (Decomposed)
+
+#### Phase 2.1: Building Directory and Venue Assignment (Completed & Verified)
+- **Business Objective**: Add a Building entity to the Facilities module with a normalized unique code, link venues optionally to buildings via forward-only migration, provide building management and venue assignment capabilities for `UniversityAdminWithMfa`, and enable coordinators to view and filter the venue catalog by building while retaining all existing booking requests, manager assignments, and confirmed reservations.
+- **Vertical Slice Scope**:
+  - **Backend**:
+    - `Building` domain entity with `Name` and normalized unique `Code`.
+    - Extended `Venue` entity with nullable `BuildingId` foreign key and navigation (`fk_venues_buildings_building_id`, `OnDelete: SetNull`).
+    - Forward-only EF Core migration `20261122183939_AddBuildingDirectoryAndVenueAssignment` and updated model snapshot.
+    - Building endpoints (`GET /api/buildings`, `GET /api/buildings/{id}`, `POST /api/buildings`, `PUT /api/buildings/{id}`) protected by `UniversityAdminWithMfa` policy for mutating endpoints, returning 409 Conflict for duplicate codes.
+    - Venue assignment endpoint (`PUT /api/venues/{id}/building`) validating building ID and assigning/reassigning/unassigning venues.
+    - Updated Venue endpoints (`GET /api/venues`, `GET /api/venues/{id}`, `POST /api/venues`, `PUT /api/venues/{id}`) to include building details in responses.
+  - **Frontend**:
+    - Extended Venue types and API client (`BuildingDto`, `CreateBuildingPayload`, `UpdateBuildingPayload`, `AssignVenueBuildingPayload`, `fetchBuildings`, `createBuilding`, `updateBuilding`, `assignVenueBuilding`).
+    - Venue catalog filter: dropdown with "All Buildings" (default), "Unassigned", and individual buildings.
+    - Venue cards show building badges (`name (code)`) or "Unassigned" chip.
+    - Management tab: Building Directory subview for `UniversityAdmin` with completed MFA, displaying registered buildings, codes, active venue counts, and edit buttons.
+    - Create Building modal and Edit Building modal with clear 409 duplicate code conflict error handling.
+    - Venue Building Assignment card for `UniversityAdmin` with completed MFA to assign/reassign/unassign venues.
+  - **Database Changes**:
+    - `buildings` table with `id`, `name`, `code`, `created_at_utc`, `updated_at_utc`.
+    - Unique index `ix_buildings_code` on `buildings(code)`.
+    - `venues.building_id` nullable UUID foreign key to `buildings(id)`.
+  - **Tests & Verification**:
+    - 12 dedicated backend integration tests in `BuildingDirectoryIntegrationTests.cs` (148 total backend tests passing).
+    - 7 dedicated frontend component tests in `VenuesScreen.test.tsx` (62 total frontend tests passing).
+    - Scope strictly limited to buildings and venue assignment; equipment, accessibility tags, and photo galleries deferred to subsequent Phase 2 slices.
+
+---
+
+*(Phases 2.2 through 13 continue as previously defined in the master roadmap).*

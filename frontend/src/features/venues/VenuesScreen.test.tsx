@@ -3,7 +3,7 @@ import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { VenuesScreen } from './VenuesScreen';
 import * as api from './api';
 import * as usersApi from '../users/api';
-import type { VenueDto, CheckAvailabilityResponse, BookingRequestDto } from './types';
+import type { VenueDto, CheckAvailabilityResponse, BookingRequestDto, BuildingDto } from './types';
 import { useAuth } from '../auth/useAuth';
 import type { AuthContextValue } from '../auth/context';
 
@@ -35,11 +35,33 @@ vi.mock('../auth/useAuth', () => ({
 }));
 
 describe('VenuesScreen Component Tests', () => {
+  const mockBuildings: BuildingDto[] = [
+    {
+      id: 'bld-civil',
+      name: 'Civil Engineering Complex',
+      code: 'BLD-CIVIL',
+      venueCount: 1,
+      createdAtUtc: '2026-11-20T00:00:00Z',
+      updatedAtUtc: '2026-11-20T00:00:00Z',
+    },
+    {
+      id: 'bld-fob',
+      name: 'Faculty of Business Tower',
+      code: 'BLD-FOB',
+      venueCount: 0,
+      createdAtUtc: '2026-11-20T00:00:00Z',
+      updatedAtUtc: '2026-11-20T00:00:00Z',
+    },
+  ];
+
   const mockVenues: VenueDto[] = [
     {
       id: 'venue-jg-hall',
       name: 'Civil Auditorium (J.G. Hall)',
       code: 'JG-HALL',
+      buildingId: 'bld-civil',
+      buildingName: 'Civil Engineering Complex',
+      buildingCode: 'BLD-CIVIL',
       type: 'Central',
       managingUnit: 'General Administration / Student Welfare',
       capacity: 600,
@@ -60,6 +82,9 @@ describe('VenuesScreen Component Tests', () => {
       id: 'venue-fob-101',
       name: 'Faculty of Business Room 101',
       code: 'FOB-101',
+      buildingId: null,
+      buildingName: null,
+      buildingCode: null,
       type: 'Departmental',
       managingUnit: 'Faculty of Business / Undergraduate Studies',
       capacity: 80,
@@ -81,6 +106,7 @@ describe('VenuesScreen Component Tests', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     vi.spyOn(api, 'fetchVenues').mockResolvedValue(mockVenues);
+    vi.spyOn(api, 'fetchBuildings').mockResolvedValue(mockBuildings);
     vi.spyOn(api, 'fetchCalendarCoverages').mockResolvedValue([]);
     vi.spyOn(api, 'fetchCalendarBlocks').mockResolvedValue([]);
     vi.spyOn(api, 'fetchMyBookingRequests').mockResolvedValue([]);
@@ -813,6 +839,285 @@ describe('VenuesScreen Component Tests', () => {
       // Must stay in AwaitingConfirmation!
       expect(screen.getByText(/Awaiting Confirmation/i)).toBeInTheDocument();
       expect(screen.getByRole('button', { name: /Confirm Booking/i })).toBeInTheDocument();
+    });
+  });
+
+  /* =========================================================================
+     PHASE 2.1: BUILDING DIRECTORY & VENUE ASSIGNMENT TESTS
+     ========================================================================= */
+
+  it('displays building badges on assigned venue and Unassigned on legacy unassigned venue in catalog', async () => {
+    render(<VenuesScreen />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Civil Auditorium (J.G. Hall)')).toBeInTheDocument();
+      expect(screen.getByText('Faculty of Business Room 101')).toBeInTheDocument();
+    });
+
+    // Check building badges
+    expect(screen.getByTestId('venue-building-venue-jg-hall')).toHaveTextContent('Civil Engineering Complex (BLD-CIVIL)');
+    expect(screen.getByTestId('venue-building-venue-fob-101')).toHaveTextContent('Unassigned');
+  });
+
+  it('filters venue catalog by building (All Buildings default, Unassigned, specific building)', async () => {
+    render(<VenuesScreen />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Civil Auditorium (J.G. Hall)')).toBeInTheDocument();
+      expect(screen.getByText('Faculty of Business Room 101')).toBeInTheDocument();
+    });
+
+    const filterSelect = screen.getByTestId('building-filter');
+    expect(filterSelect).toHaveValue('all');
+
+    // Filter by Unassigned
+    fireEvent.change(filterSelect, { target: { value: 'unassigned' } });
+    expect(screen.queryByText('Civil Auditorium (J.G. Hall)')).not.toBeInTheDocument();
+    expect(screen.getByText('Faculty of Business Room 101')).toBeInTheDocument();
+
+    // Filter by specific building (bld-civil)
+    fireEvent.change(filterSelect, { target: { value: 'bld-civil' } });
+    expect(screen.getByText('Civil Auditorium (J.G. Hall)')).toBeInTheDocument();
+    expect(screen.queryByText('Faculty of Business Room 101')).not.toBeInTheDocument();
+
+    // Filter by bld-fob (no venues assigned)
+    fireEvent.change(filterSelect, { target: { value: 'bld-fob' } });
+    expect(screen.queryByText('Civil Auditorium (J.G. Hall)')).not.toBeInTheDocument();
+    expect(screen.queryByText('Faculty of Business Room 101')).not.toBeInTheDocument();
+    expect(screen.getByText(/No venues match the selected building filter/i)).toBeInTheDocument();
+
+    // Back to All Buildings
+    fireEvent.change(filterSelect, { target: { value: 'all' } });
+    expect(screen.getByText('Civil Auditorium (J.G. Hall)')).toBeInTheDocument();
+    expect(screen.getByText('Faculty of Business Room 101')).toBeInTheDocument();
+  });
+
+  it('does not display Building Directory subview to non-admin coordinators', async () => {
+    render(<VenuesScreen />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Civil Auditorium (J.G. Hall)')).toBeInTheDocument();
+    });
+
+    // Coordinator cannot see Calendar & Rules tab or Building Directory
+    expect(screen.queryByText(/Calendar & Rules/i)).not.toBeInTheDocument();
+    expect(screen.queryByTestId('tab-subview-buildings')).not.toBeInTheDocument();
+  });
+
+  it('allows MFA-verified UniversityAdmin to view Building Directory and create a new building', async () => {
+    const { useAuth } = await import('../auth/useAuth');
+    vi.mocked(useAuth).mockReturnValue(
+      createMockAuth({
+        user: {
+          id: 'admin-user-1',
+          email: 'admin@campus.internal',
+          roles: ['UniversityAdmin'],
+          mfaCompleted: true,
+        },
+      })
+    );
+
+    const createSpy = vi.spyOn(api, 'createBuilding').mockResolvedValue({
+      id: 'bld-arch',
+      name: 'Faculty of Architecture',
+      code: 'BLD-ARCH',
+      venueCount: 0,
+      createdAtUtc: '2026-11-22T00:00:00Z',
+      updatedAtUtc: '2026-11-22T00:00:00Z',
+    });
+
+    render(<VenuesScreen />);
+
+    // Switch to Calendar & Rules management tab
+    await waitFor(() => {
+      expect(screen.getByText(/Calendar & Rules/i)).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByText(/Calendar & Rules/i));
+
+    // Click Building Directory subview button
+    await waitFor(() => {
+      expect(screen.getByTestId('tab-subview-buildings')).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByTestId('tab-subview-buildings'));
+
+    // Verify building directory table
+    expect(screen.getByText('University Buildings Directory')).toBeInTheDocument();
+    expect(screen.getByText('Civil Engineering Complex')).toBeInTheDocument();
+    expect(screen.getByText('Faculty of Business Tower')).toBeInTheDocument();
+
+    // Open Add Building modal
+    fireEvent.click(screen.getByTestId('open-create-building-modal'));
+    expect(screen.getByTestId('create-building-modal')).toBeInTheDocument();
+
+    // Fill in building details
+    fireEvent.change(screen.getByTestId('create-building-name'), {
+      target: { value: 'Faculty of Architecture' },
+    });
+    fireEvent.change(screen.getByTestId('create-building-code'), {
+      target: { value: 'BLD-ARCH' },
+    });
+
+    // Submit form
+    fireEvent.click(screen.getByTestId('submit-create-building'));
+
+    await waitFor(() => {
+      expect(createSpy).toHaveBeenCalledWith({
+        name: 'Faculty of Architecture',
+        code: 'BLD-ARCH',
+      });
+      expect(screen.queryByTestId('create-building-modal')).not.toBeInTheDocument();
+    });
+  });
+
+  it('displays 409 conflict error when creating building with duplicate code', async () => {
+    const { useAuth } = await import('../auth/useAuth');
+    vi.mocked(useAuth).mockReturnValue(
+      createMockAuth({
+        user: {
+          id: 'admin-user-1',
+          email: 'admin@campus.internal',
+          roles: ['UniversityAdmin'],
+          mfaCompleted: true,
+        },
+      })
+    );
+
+    vi.spyOn(api, 'createBuilding').mockRejectedValue(
+      new Error("A building with code 'BLD-CIVIL' already exists.")
+    );
+
+    render(<VenuesScreen />);
+
+    fireEvent.click(screen.getByText(/Calendar & Rules/i));
+    await waitFor(() => {
+      expect(screen.getByTestId('tab-subview-buildings')).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByTestId('tab-subview-buildings'));
+
+    fireEvent.click(screen.getByTestId('open-create-building-modal'));
+    fireEvent.change(screen.getByTestId('create-building-name'), {
+      target: { value: 'Civil Engineering Annex' },
+    });
+    fireEvent.change(screen.getByTestId('create-building-code'), {
+      target: { value: 'BLD-CIVIL' },
+    });
+
+    fireEvent.click(screen.getByTestId('submit-create-building'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('create-building-error')).toHaveTextContent(
+        "A building with code 'BLD-CIVIL' already exists."
+      );
+    });
+  });
+
+  it('allows MFA-verified UniversityAdmin to edit an existing building', async () => {
+    const { useAuth } = await import('../auth/useAuth');
+    vi.mocked(useAuth).mockReturnValue(
+      createMockAuth({
+        user: {
+          id: 'admin-user-1',
+          email: 'admin@campus.internal',
+          roles: ['UniversityAdmin'],
+          mfaCompleted: true,
+        },
+      })
+    );
+
+    const updateSpy = vi.spyOn(api, 'updateBuilding').mockResolvedValue({
+      id: 'bld-civil',
+      name: 'Civil Engineering & Environmental Complex',
+      code: 'BLD-CIVIL-ENV',
+      venueCount: 1,
+      createdAtUtc: '2026-11-20T00:00:00Z',
+      updatedAtUtc: '2026-11-22T00:00:00Z',
+    });
+
+    render(<VenuesScreen />);
+
+    fireEvent.click(screen.getByText(/Calendar & Rules/i));
+    await waitFor(() => {
+      expect(screen.getByTestId('tab-subview-buildings')).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByTestId('tab-subview-buildings'));
+
+    // Click Edit on Civil Engineering Complex
+    fireEvent.click(screen.getByTestId('edit-building-btn-bld-civil'));
+    expect(screen.getByTestId('edit-building-modal')).toBeInTheDocument();
+    expect(screen.getByTestId('edit-building-name')).toHaveValue('Civil Engineering Complex');
+    expect(screen.getByTestId('edit-building-code')).toHaveValue('BLD-CIVIL');
+
+    // Change details
+    fireEvent.change(screen.getByTestId('edit-building-name'), {
+      target: { value: 'Civil Engineering & Environmental Complex' },
+    });
+    fireEvent.change(screen.getByTestId('edit-building-code'), {
+      target: { value: 'BLD-CIVIL-ENV' },
+    });
+
+    fireEvent.click(screen.getByTestId('submit-edit-building'));
+
+    await waitFor(() => {
+      expect(updateSpy).toHaveBeenCalledWith('bld-civil', {
+        name: 'Civil Engineering & Environmental Complex',
+        code: 'BLD-CIVIL-ENV',
+      });
+      expect(screen.queryByTestId('edit-building-modal')).not.toBeInTheDocument();
+    });
+  });
+
+  it('allows MFA-verified UniversityAdmin to assign and unassign a venue building', async () => {
+    const { useAuth } = await import('../auth/useAuth');
+    vi.mocked(useAuth).mockReturnValue(
+      createMockAuth({
+        user: {
+          id: 'admin-user-1',
+          email: 'admin@campus.internal',
+          roles: ['UniversityAdmin'],
+          mfaCompleted: true,
+        },
+      })
+    );
+
+    const assignSpy = vi.spyOn(api, 'assignVenueBuilding').mockResolvedValue({
+      ...mockVenues[0],
+      buildingId: 'bld-fob',
+      buildingName: 'Faculty of Business Tower',
+      buildingCode: 'BLD-FOB',
+    });
+
+    render(<VenuesScreen />);
+
+    fireEvent.click(screen.getByText(/Calendar & Rules/i));
+
+    await waitFor(() => {
+      expect(screen.getByText(/Building Assignment/i)).toBeInTheDocument();
+    });
+
+    const assignSelect = screen.getByTestId('assign-building-select');
+    expect(assignSelect).toHaveValue('bld-civil');
+
+    // Change to bld-fob
+    fireEvent.change(assignSelect, { target: { value: 'bld-fob' } });
+    fireEvent.click(screen.getByTestId('submit-assign-building'));
+
+    await waitFor(() => {
+      expect(assignSpy).toHaveBeenCalledWith('venue-jg-hall', { buildingId: 'bld-fob' });
+    });
+
+    // Test Unassign
+    assignSpy.mockResolvedValueOnce({
+      ...mockVenues[0],
+      buildingId: null,
+      buildingName: null,
+      buildingCode: null,
+    });
+
+    fireEvent.change(assignSelect, { target: { value: '' } });
+    fireEvent.click(screen.getByTestId('submit-assign-building'));
+
+    await waitFor(() => {
+      expect(assignSpy).toHaveBeenCalledWith('venue-jg-hall', { buildingId: null });
     });
   });
 });

@@ -18,7 +18,10 @@ public record VenueDto(
     bool IsActive,
     DateTime CreatedAtUtc,
     DateTime UpdatedAtUtc,
-    IReadOnlyList<VenueManagerDto> Managers
+    IReadOnlyList<VenueManagerDto> Managers,
+    Guid? BuildingId = null,
+    string? BuildingName = null,
+    string? BuildingCode = null
 );
 
 public record VenueManagerDto(
@@ -41,7 +44,8 @@ public record CreateVenueRequest(
     int DefaultCleanupMinutes,
     int MaxBookingHours,
     bool RequiresEventApproval,
-    string? GeneralRules = null
+    string? GeneralRules = null,
+    Guid? BuildingId = null
 );
 
 public record UpdateVenueRequest(
@@ -57,7 +61,8 @@ public record UpdateVenueRequest(
     int MaxBookingHours,
     bool RequiresEventApproval,
     bool IsActive,
-    string? GeneralRules = null
+    string? GeneralRules = null,
+    Guid? BuildingId = null
 );
 
 public record UpdateVenueRulesRequest(
@@ -74,4 +79,8 @@ public record UpdateVenueRulesRequest(
 
 public record AssignVenueManagerRequest(
     Guid UserId
+);
+
+public record AssignVenueBuildingRequest(
+    Guid? BuildingId
 );

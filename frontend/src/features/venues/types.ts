@@ -24,6 +24,32 @@ export interface VenueDto {
   createdAtUtc: string;
   updatedAtUtc: string;
   managers: VenueManagerDto[];
+  buildingId?: string | null;
+  buildingName?: string | null;
+  buildingCode?: string | null;
+}
+
+export interface BuildingDto {
+  id: string;
+  name: string;
+  code: string;
+  venueCount: number;
+  createdAtUtc: string;
+  updatedAtUtc: string;
+}
+
+export interface CreateBuildingPayload {
+  name: string;
+  code: string;
+}
+
+export interface UpdateBuildingPayload {
+  name: string;
+  code: string;
+}
+
+export interface AssignVenueBuildingPayload {
+  buildingId: string | null;
 }
 
 export interface UpdateVenueRulesPayload {
