@@ -21,6 +21,7 @@ public static class VenueEndpoints
         {
             var isAdmin = httpContext.User.IsInRole(CampusRoles.UniversityAdmin);
             var query = dbContext.Venues
+                .Include(v => v.Building)
                 .Include(v => v.Managers)
                     .ThenInclude(m => m.User)
                 .AsNoTracking();
@@ -47,6 +48,7 @@ public static class VenueEndpoints
         group.MapGet("/{id:guid}", async (Guid id, CampusVenueDbContext dbContext) =>
         {
             var venue = await dbContext.Venues
+                .Include(v => v.Building)
                 .Include(v => v.Managers)
                     .ThenInclude(m => m.User)
                 .AsNoTracking()
@@ -95,9 +97,19 @@ public static class VenueEndpoints
             if (existingCode)
                 return Results.Conflict(new { message = $"A venue with code '{request.Code}' already exists." });
 
+            if (request.BuildingId.HasValue)
+            {
+                var buildingExists = await dbContext.Buildings.AnyAsync(b => b.Id == request.BuildingId.Value);
+                if (!buildingExists)
+                {
+                    return Results.BadRequest(new { message = $"Building with ID '{request.BuildingId.Value}' was not found." });
+                }
+            }
+
             var venue = new Venue
             {
                 Id = Guid.NewGuid(),
+                BuildingId = request.BuildingId,
                 Name = request.Name.Trim(),
                 Code = request.Code.Trim().ToUpperInvariant(),
                 Type = request.Type.Trim(),
@@ -119,6 +131,12 @@ public static class VenueEndpoints
             dbContext.Venues.Add(venue);
             await dbContext.SaveChangesAsync();
 
+            // Load building navigation for response DTO if assigned
+            if (venue.BuildingId.HasValue)
+            {
+                await dbContext.Entry(venue).Reference(v => v.Building).LoadAsync();
+            }
+
             var dto = MapToVenueDto(venue);
 
             return Results.Created($"/api/venues/{venue.Id}", dto);
@@ -137,6 +155,7 @@ public static class VenueEndpoints
             CampusVenueDbContext dbContext) =>
         {
             var venue = await dbContext.Venues
+                .Include(v => v.Building)
                 .Include(v => v.Managers)
                     .ThenInclude(m => m.User)
                 .FirstOrDefaultAsync(v => v.Id == id);
@@ -160,6 +179,18 @@ public static class VenueEndpoints
 
             if (opEnd <= opStart)
                 return Results.BadRequest(new { message = "Operating hours end time must be after start time." });
+
+            if (request.BuildingId.HasValue)
+            {
+                var building = await dbContext.Buildings.FindAsync(request.BuildingId.Value);
+                if (building == null)
+                {
+                    return Results.BadRequest(new { message = $"Building with ID '{request.BuildingId.Value}' was not found." });
+                }
+
+                venue.BuildingId = building.Id;
+                venue.Building = building;
+            }
 
             venue.Name = request.Name.Trim();
             venue.Type = request.Type.Trim();
@@ -331,6 +362,54 @@ public static class VenueEndpoints
         .Produces(StatusCodes.Status204NoContent)
         .Produces(StatusCodes.Status404NotFound);
 
+        // 8. Assign or reassign venue to a physical building (UniversityAdmin with MFA)
+        group.MapPut("/{id:guid}/building", async (
+            Guid id,
+            AssignVenueBuildingRequest request,
+            CampusVenueDbContext dbContext) =>
+        {
+            var venue = await dbContext.Venues
+                .Include(v => v.Building)
+                .Include(v => v.Managers)
+                    .ThenInclude(m => m.User)
+                .FirstOrDefaultAsync(v => v.Id == id);
+
+            if (venue == null)
+            {
+                return Results.NotFound(new { message = $"Venue with ID '{id}' was not found." });
+            }
+
+            if (request.BuildingId.HasValue)
+            {
+                var building = await dbContext.Buildings.FindAsync(request.BuildingId.Value);
+                if (building == null)
+                {
+                    return Results.BadRequest(new { message = $"Building with ID '{request.BuildingId.Value}' was not found." });
+                }
+
+                venue.BuildingId = building.Id;
+                venue.Building = building;
+            }
+            else
+            {
+                venue.BuildingId = null;
+                venue.Building = null;
+            }
+
+            venue.UpdatedAtUtc = DateTime.UtcNow;
+            await dbContext.SaveChangesAsync();
+
+            var dto = MapToVenueDto(venue);
+
+            return Results.Ok(dto);
+        })
+        .RequireAuthorization(AuthorizationPolicies.UniversityAdminWithMfa)
+        .WithName("AssignVenueBuilding")
+        .WithSummary("Assign, reassign, or unassign a venue to a physical building")
+        .Produces<VenueDto>(StatusCodes.Status200OK)
+        .Produces(StatusCodes.Status400BadRequest)
+        .Produces(StatusCodes.Status404NotFound);
+
         return app;
     }
 
@@ -359,7 +438,10 @@ public static class VenueEndpoints
                 m.User?.Email ?? string.Empty,
                 m.User?.UserName,
                 m.AssignedAtUtc
-            )).ToList() ?? []
+            )).ToList() ?? [],
+            venue.BuildingId,
+            venue.Building?.Name,
+            venue.Building?.Code
         );
     }
 

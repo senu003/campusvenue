@@ -19,6 +19,7 @@ public class CampusVenueDbContext : IdentityDbContext<ApplicationUser, Applicati
     }
 
     public DbSet<RoleAssignmentAudit> RoleAssignmentAudits => Set<RoleAssignmentAudit>();
+    public DbSet<Building> Buildings => Set<Building>();
     public DbSet<Venue> Venues => Set<Venue>();
     public DbSet<VenueManager> VenueManagers => Set<VenueManager>();
     public DbSet<VenueCalendarCoverage> VenueCalendarCoverages => Set<VenueCalendarCoverage>();
@@ -139,6 +140,19 @@ public class CampusVenueDbContext : IdentityDbContext<ApplicationUser, Applicati
             b.HasIndex(a => a.CreatedAtUtc).HasDatabaseName("ix_role_assignment_audits_created_at_utc");
         });
 
+        modelBuilder.Entity<Building>(b =>
+        {
+            b.ToTable("buildings");
+            b.HasKey(x => x.Id).HasName("pk_buildings");
+            b.Property(x => x.Id).HasColumnName("id");
+            b.Property(x => x.Name).HasColumnName("name").HasMaxLength(200).IsRequired();
+            b.Property(x => x.Code).HasColumnName("code").HasMaxLength(50).IsRequired();
+            b.Property(x => x.CreatedAtUtc).HasColumnName("created_at_utc").HasColumnType("timestamp with time zone").IsRequired();
+            b.Property(x => x.UpdatedAtUtc).HasColumnName("updated_at_utc").HasColumnType("timestamp with time zone").IsRequired();
+
+            b.HasIndex(x => x.Code).IsUnique().HasDatabaseName("ix_buildings_code");
+        });
+
         modelBuilder.Entity<Venue>(b =>
         {
             b.ToTable("venues", t =>
@@ -152,6 +166,7 @@ public class CampusVenueDbContext : IdentityDbContext<ApplicationUser, Applicati
 
             b.HasKey(v => v.Id).HasName("pk_venues");
             b.Property(v => v.Id).HasColumnName("id");
+            b.Property(v => v.BuildingId).HasColumnName("building_id");
             b.Property(v => v.Name).HasColumnName("name").HasMaxLength(200).IsRequired();
             b.Property(v => v.Code).HasColumnName("code").HasMaxLength(50).IsRequired();
             b.Property(v => v.Type).HasColumnName("type").HasMaxLength(50).IsRequired();
@@ -169,6 +184,13 @@ public class CampusVenueDbContext : IdentityDbContext<ApplicationUser, Applicati
             b.Property(v => v.CreatedAtUtc).HasColumnName("created_at_utc").HasColumnType("timestamp with time zone").IsRequired();
             b.Property(v => v.UpdatedAtUtc).HasColumnName("updated_at_utc").HasColumnType("timestamp with time zone").IsRequired();
 
+            b.HasOne(v => v.Building)
+                .WithMany(b => b.Venues)
+                .HasForeignKey(v => v.BuildingId)
+                .HasConstraintName("fk_venues_buildings_building_id")
+                .OnDelete(DeleteBehavior.SetNull);
+
+            b.HasIndex(v => v.BuildingId).HasDatabaseName("ix_venues_building_id");
             b.HasIndex(v => v.Code).IsUnique().HasDatabaseName("ix_venues_code");
             b.HasIndex(v => v.IsActive).HasDatabaseName("ix_venues_is_active");
         });

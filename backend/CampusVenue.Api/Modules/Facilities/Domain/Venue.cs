@@ -81,6 +81,13 @@ public class Venue
     public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAtUtc { get; set; } = DateTime.UtcNow;
 
+    /// <summary>
+    /// Optional foreign key to the physical building housing this venue.
+    /// Nullable so existing venues remain fully functional without a building.
+    /// </summary>
+    public Guid? BuildingId { get; set; }
+    public Building? Building { get; set; }
+
     // Navigation collections
     public ICollection<VenueManager> Managers { get; set; } = new List<VenueManager>();
     public ICollection<VenueCalendarCoverage> CalendarCoverages { get; set; } = new List<VenueCalendarCoverage>();

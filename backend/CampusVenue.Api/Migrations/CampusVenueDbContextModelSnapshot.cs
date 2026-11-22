@@ -25,12 +25,53 @@ namespace CampusVenue.Api.Migrations
             NpgsqlModelBuilderExtensions.HasPostgresExtension(modelBuilder, "btree_gist");
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("CampusVenue.Api.Modules.Facilities.Domain.Building", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("code");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at_utc");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("name");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at_utc");
+
+                    b.HasKey("Id")
+                        .HasName("pk_buildings");
+
+                    b.HasIndex("Code")
+                        .IsUnique()
+                        .HasDatabaseName("ix_buildings_code");
+
+                    b.ToTable("buildings", (string)null);
+                });
+
             modelBuilder.Entity("CampusVenue.Api.Modules.Facilities.Domain.Venue", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid")
                         .HasColumnName("id");
+
+                    b.Property<Guid?>("BuildingId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("building_id");
 
                     b.Property<int>("Capacity")
                         .HasColumnType("integer")
@@ -107,6 +148,9 @@ namespace CampusVenue.Api.Migrations
 
                     b.HasKey("Id")
                         .HasName("pk_venues");
+
+                    b.HasIndex("BuildingId")
+                        .HasDatabaseName("ix_venues_building_id");
 
                     b.HasIndex("Code")
                         .IsUnique()
@@ -834,6 +878,17 @@ namespace CampusVenue.Api.Migrations
                     b.ToTable("user_tokens", (string)null);
                 });
 
+            modelBuilder.Entity("CampusVenue.Api.Modules.Facilities.Domain.Venue", b =>
+                {
+                    b.HasOne("CampusVenue.Api.Modules.Facilities.Domain.Building", "Building")
+                        .WithMany("Venues")
+                        .HasForeignKey("BuildingId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_venues_buildings_building_id");
+
+                    b.Navigation("Building");
+                });
+
             modelBuilder.Entity("CampusVenue.Api.Modules.Facilities.Domain.VenueCalendarBlock", b =>
                 {
                     b.HasOne("CampusVenue.Api.Modules.Identity.Domain.ApplicationUser", "CreatedByUser")
@@ -1047,6 +1102,11 @@ namespace CampusVenue.Api.Migrations
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("CampusVenue.Api.Modules.Facilities.Domain.Building", b =>
+                {
+                    b.Navigation("Venues");
                 });
 
             modelBuilder.Entity("CampusVenue.Api.Modules.Facilities.Domain.Venue", b =>
